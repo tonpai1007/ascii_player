@@ -1,0 +1,79 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ascii-player"
+version = "1.0.0"
+description = "Terminal ASCII video player with YouTube, lyrics, and TUI"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+authors = [
+    {name = "ASCII Player Contributors"}
+]
+keywords = ["ascii", "video", "player", "terminal", "tui", "youtube"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: System :: Monitoring",
+]
+dependencies = [
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+    "loguru>=0.7.0",
+    "yt-dlp>=2024.1.0",
+    "pyyaml>=6.0",
+    "Pillow>=10.0.0",
+    "textual>=0.40.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-asyncio>=0.23.0",
+    "black>=23.0",
+    "ruff>=0.1.0",
+    "msgpack>=1.0",
+    "numpy>=1.24.0",
+    "opencv-python>=4.8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/ascii-player/ascii-player"
+Repository = "https://github.com/ascii-player/ascii-player"
+Issues = "https://github.com/ascii-player/ascii-player/issues"
+
+[project.scripts]
+ascii-player = "ascii_player.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["ascii_player*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py38"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
