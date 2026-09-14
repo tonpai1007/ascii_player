@@ -96,26 +96,26 @@ class AudioVisualizer:
         return lines
 
     def _render_wave(self, current_time: float, width: int) -> List[str]:
-        """Render waveform-style visualization."""
+        """Render waveform-style visualization (vectorized)."""
         frame_idx = self._get_frame_index(current_time)
         window_size = max(1, int(self._sample_rate / self.fps))
-        samples = np.linspace(0, window_size, width, dtype=int)
+
+        n = len(self._data)
+        idx = frame_idx + np.linspace(0, window_size, width, dtype=int)
+        idx = np.clip(idx, 0, n - 1) if n > 0 else np.zeros(width, dtype=int)
+
+        vals = self._data[np.minimum(idx, n - 1)] / 32768.0
 
         lines: List[str] = []
         for i in range(8, -9, -1):
-            line = ""
-            for s in samples:
-                idx = frame_idx + s
-                if idx < len(self._data):
-                    val = self._data[idx] / 32768.0
-                    if i == 0:
-                        line += "█" if abs(val) < 0.3 else "▓"
-                    elif i > 0:
-                        line += "▓" if val > i * 0.125 else " "
-                    else:
-                        line += "▓" if val < i * 0.125 else " "
-                else:
-                    line += " "
-            lines.append(line)
-
+            if i == 0:
+                mask = np.abs(vals) < 0.3
+            elif i > 0:
+                mask = vals > i * 0.125
+            else:
+                mask = vals < i * 0.125
+            chars = np.where(mask, "█", " ")
+            if i == 0:
+                chars = np.where(np.abs(vals) < 0.3, "█", "▓").astype("<U1")
+            lines.append("".join(chars.tolist()))
         return lines

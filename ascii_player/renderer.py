@@ -172,8 +172,7 @@ class FullscreenRenderer(Renderer):
                 text = text[:self.width - 7] + "..."
 
             if is_current:
-                formatted = f"\033[1;32m{'':^{self.width}}\033[0m"
-                formatted += f"\n\033[1;33m  ♪ {text} ♪\033[0m"
+                formatted = f"\033[1;33m  ♪ {text} ♪\033[0m"
             else:
                 formatted = f"\033[90m{text:^{self.width}}\033[0m"
 

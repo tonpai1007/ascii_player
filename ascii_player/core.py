@@ -77,12 +77,30 @@ def _color_ascii(resized, gray, chars):
     rgb = resized[..., ::-1]
     h, w = gray.shape
 
-    rgb_flat = rgb.reshape(-1, 3).tolist()
-    char_flat = char_grid.ravel().tolist()
-
-    parts = [
-        f"\033[38;2;{r};{g};{b}m{c}\033[0m"
-        for (r, g, b), c in zip(rgb_flat, char_flat)
-    ]
-
-    return [''.join(parts[i * w:(i + 1) * w]) for i in range(h)]
+    rows = []
+    for row_i in range(h):
+        rgb_row = rgb[row_i]
+        chars_row = char_grid[row_i]
+        parts = []
+        run_r, run_g, run_b = -1, -1, -1
+        run_buf = []
+        for col_i in range(w):
+            r = int(rgb_row[col_i, 0])
+            g = int(rgb_row[col_i, 1])
+            b = int(rgb_row[col_i, 2])
+            c = chars_row[col_i]
+            if r == run_r and g == run_g and b == run_b:
+                run_buf.append(c)
+            else:
+                if run_buf:
+                    parts.append(
+                        f"\033[38;2;{run_r};{run_g};{run_b}m{''.join(run_buf)}\033[0m"
+                    )
+                run_r, run_g, run_b = r, g, b
+                run_buf = [c]
+        if run_buf:
+            parts.append(
+                f"\033[38;2;{run_r};{run_g};{run_b}m{''.join(run_buf)}\033[0m"
+            )
+        rows.append(''.join(parts))
+    return rows

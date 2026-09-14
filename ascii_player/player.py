@@ -511,6 +511,9 @@ def _write_frame(prefix: str, lines: List[str]) -> None:
     sys.stdout.flush()
 
 
+_BORDER_CACHE: dict = {}
+
+
 def _build_plain_frame_lines(
     ascii_frame: Frame,
     width: int,
@@ -520,19 +523,38 @@ def _build_plain_frame_lines(
     duration: float,
     controls: Optional[PlaybackControls] = None
 ) -> List[str]:
-    """Build plain frame lines without writing to stdout."""
-    lines: List[str] = [f"\033[1;36m{'=' * width}\033[0m"]
-    lines.extend(ascii_frame)
-    lines.append(f"\033[1;36m{'=' * width}\033[0m")
+    """Build plain frame lines without writing to stdout.
 
-    status = f"Frame {frame_num + 1}/{total_frames} | {frame_num * frame_interval:.1f}s / {duration:.1f}s"
+    The top/bottom border and control bar are static per width/has-controls,
+    so they are cached and reused across frames.
+    """
+    cache_key = (width, controls is not None)
+    static = _BORDER_CACHE.get(cache_key)
+    if static is None:
+        border = f"\033[1;36m{'=' * width}\033[0m"
+        if controls:
+            bar, status_line_template = controls.render_controls(width)
+            # status_line_template is static, but frame status is appended
+            static = [border, bar, f"{status_line_template} | "]
+        else:
+            static = [border, "\033[1;33m"]
+        _BORDER_CACHE.clear()
+        _BORDER_CACHE[cache_key] = static
+
+    lines: List[str] = [static[0]]
+    lines.extend(ascii_frame)
+    lines.append(static[0])
+
+    status = (
+        f"Frame {frame_num + 1}/{total_frames} | "
+        f"{frame_num * frame_interval:.1f}s / {duration:.1f}s"
+    )
 
     if controls:
-        bar, status_line = controls.render_controls(width)
-        lines.append(bar)
-        lines.append(f"{status_line} | {status}")
+        lines.append(static[1])
+        lines.append(static[2] + status)
     else:
-        lines.append(f"\033[1;33m{status}\033[0m")
+        lines.append(static[1] + status + "\033[0m")
 
     return lines
 

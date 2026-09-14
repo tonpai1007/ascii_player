@@ -1,44 +1,40 @@
-# ASCII Video Player
+# ascii-player
 
-A feature-rich terminal application that converts videos into ASCII art playback. Supports local files, YouTube URLs, live webcam, lyrics sync, and multiple export formats.
+Play video as ASCII art, right in your terminal — local files, YouTube URLs, even your webcam — with synced audio, lyrics, and GIF/MP4 export.
 
-## Features
-
-- **8 ASCII presets**: classic, blocks, dots, binary, simple, detailed, unicode, braille
-- **ANSI truecolor** support for colored ASCII output
-- **YouTube integration** via yt-dlp
-- **Audio playback** synchronized with video
-- **Lyrics sync** with LRC, SRT, and ASS/SSA formats
-- **TUI interface** with file browser, URL bar, and settings
-- **Webcam mode** for live ASCII capture
-- **Export** to GIF or MP4
-- **Frame caching** for faster replay
-- **Keyboard controls**: pause, seek, speed adjustment, quit
-
-## Installation
-
-```bash
-pip install ascii-player
+```text
+  ▐█████████████▌   just a video, but it's   ▐█████████████▌
+  ▐██░▒▓████▓▒░██▌   your terminal now        ▐██░▒▓████▓▒░██▌
 ```
 
-Or from source:
+## Install
+
+Currently installed from source (not on PyPI yet):
 
 ```bash
-git clone https://github.com/yourusername/ascii-player.git
+git clone https://github.com/tonpai1007/ascii-player.git
 cd ascii-player
 pip install -e .
 ```
 
-### Dependencies
+Requirements: Python 3.8+, plus OpenCV, NumPy, Pillow, yt-dlp, Loguru, PyYAML, and Textual (pulled in automatically).
 
-- Python 3.8+
-- OpenCV (`opencv-python`)
-- NumPy
-- Pillow
-- yt-dlp
-- Loguru
-- PyYAML
-- Textual (for TUI)
+## Quick start
+
+```bash
+ascii-player video.mp4                 # play a local file
+ascii-player video.mp4 -c -p blocks    # color + block-character preset
+ascii-player https://youtu.be/VIDEO_ID # play a YouTube video
+ascii-player -t                        # launch the TUI file browser
+```
+
+## Features
+
+- 8 ASCII presets (classic, blocks, dots, binary, simple, detailed, unicode, braille) with ANSI truecolor
+- YouTube playback via yt-dlp, audio synced to video
+- Lyrics sync — LRC, SRT, and ASS/SSA
+- TUI with keyboard file browser, URL bar, settings, and inline preview
+- Webcam mode, GIF/MP4 export, frame caching, A-B loop, screenshots
 
 ## Usage
 

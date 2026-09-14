@@ -214,7 +214,13 @@ class PlaybackControls:
                 self._handle_escape_sequence()
 
     def _handle_escape_sequence(self) -> None:
-        """Handle escape sequences (arrow keys)."""
+        """Handle escape sequences (arrow keys) with a short timeout."""
+        if sys.platform != "win32":
+            import select
+            ready, _, _ = select.select([sys.stdin], [], [], 0.05)
+            if not ready:
+                return
+
         if sys.stdin.readable():
             seq = sys.stdin.read(2)
             if seq == "[C":

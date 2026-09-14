@@ -1,5 +1,6 @@
 """Frame caching for smooth replay."""
 
+import collections
 import hashlib
 import json
 import os
@@ -12,18 +13,26 @@ try:
 except ImportError:
     MSGPACK_AVAILABLE = False
 
+DEFAULT_MAX_FRAMES = 50000
+
 
 class FrameCache:
-    """Cache decoded ASCII frames for instant replay."""
+    """Cache decoded ASCII frames for instant replay.
 
-    def __init__(self, cache_dir=".cache"):
+    Uses an OrderedDict for O(1) FIFO eviction when max_frames is reached,
+    preventing unbounded memory growth on long videos.
+    """
+
+    def __init__(self, cache_dir=".cache", max_frames=DEFAULT_MAX_FRAMES):
         """Initialize frame cache.
 
         Args:
             cache_dir: Directory to store cache files
+            max_frames: Maximum frames to keep in memory (oldest evicted first)
         """
         self.cache_dir = cache_dir
-        self.frames = {}
+        self.max_frames = max_frames
+        self.frames: collections.OrderedDict = collections.OrderedDict()
         self.cache_file = None
 
     def _get_cache_key(self, video_path, width, color, preset):
@@ -58,7 +67,10 @@ class FrameCache:
                     data = msgpack.unpack(f, raw=False)
                 else:
                     data = json.loads(f.read().decode("utf-8"))
-            self.frames = {i: frame for i, frame in enumerate(data)}
+            self.frames = collections.OrderedDict(
+                (i, frame) for i, frame in enumerate(data)
+            )
+            self._evict()
             logger.info("Loaded {n} cached frames", n=len(self.frames))
             return self.frames
         except Exception as e:
@@ -74,7 +86,11 @@ class FrameCache:
 
         try:
             data = [self.frames[i] for i in sorted(self.frames.keys())]
-            payload = json.dumps(data, ensure_ascii=False).encode("utf-8") if not MSGPACK_AVAILABLE else msgpack.packb(data, use_bin_type=True)
+            payload = (
+                json.dumps(data, ensure_ascii=False).encode("utf-8")
+                if not MSGPACK_AVAILABLE
+                else msgpack.packb(data, use_bin_type=True)
+            )
 
             tmp = self.cache_file + ".tmp"
             with open(tmp, "wb") as f:
@@ -90,8 +106,9 @@ class FrameCache:
         self.cache_file = self._get_cache_path(key)
 
     def add_frame(self, frame_num, ascii_frame):
-        """Add a frame to cache."""
+        """Add a frame to cache, evicting oldest if over limit."""
         self.frames[frame_num] = ascii_frame
+        self._evict()
 
     def get_frame(self, frame_num):
         """Get a cached frame."""
@@ -105,3 +122,8 @@ class FrameCache:
         """Clear all cached frames."""
         self.frames.clear()
         logger.debug("Cache cleared")
+
+    def _evict(self):
+        """Evict oldest frames when over max_frames limit."""
+        while len(self.frames) > self.max_frames:
+            self.frames.popitem(last=False)
