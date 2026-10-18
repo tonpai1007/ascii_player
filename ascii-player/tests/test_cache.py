@@ -2,7 +2,6 @@
 
 import os
 import json
-import time
 from ascii_player.cache import FrameCache
 
 
@@ -36,6 +35,17 @@ class TestFrameCache:
         cache.add_frame(0, ["data"])
         cache.clear()
         assert cache.frames == {}
+
+    def test_is_complete_requires_every_frame(self):
+        cache = FrameCache()
+        cache.add_frame(0, ["a"])
+        cache.add_frame(1, ["b"])
+        assert cache.is_complete(2) is True
+        assert cache.is_complete(3) is False
+
+    def test_is_complete_false_without_frames(self):
+        assert FrameCache().is_complete(0) is False
+        assert FrameCache().is_complete(1) is False
 
     def test_set_cache_path_generates_key(self, tmp_dir):
         cache = FrameCache(cache_dir=tmp_dir)

@@ -1,6 +1,5 @@
 """Tests for ascii_player.youtube - YouTube download."""
 
-import os
 from unittest.mock import patch, MagicMock
 import subprocess
 
@@ -22,6 +21,10 @@ class TestIsYoutubeUrl:
 
     def test_empty_string(self):
         assert not is_youtube_url("")
+
+    def test_non_youtube_lookalike_domain(self):
+        assert not is_youtube_url("https://notyoutube.com/watch?v=x")
+        assert not is_youtube_url("https://youtube.com.evil.example/watch?v=x")
 
     def test_plain_text(self):
         assert not is_youtube_url("hello world")

@@ -1,6 +1,5 @@
 """Tests for ascii_player.visualizer - audio visualization."""
 
-import os
 import wave
 
 import numpy as np

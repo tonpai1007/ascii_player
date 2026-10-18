@@ -126,12 +126,9 @@ def _save_recent(recent, max_items=RECENT_LIMIT):
 
 def _auto_lyrics(video_path):
     """Look for a same-name sibling lyrics file next to the video."""
-    base, _ = os.path.splitext(video_path)
-    for ext in LYRICS_EXT:
-        candidate = base + ext
-        if os.path.exists(candidate):
-            return candidate
-    return None
+    from .lyrics import find_lyrics_file
+
+    return find_lyrics_file(video_path)
 
 
 class FileBrowser(Static):

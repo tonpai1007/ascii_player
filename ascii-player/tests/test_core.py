@@ -39,6 +39,16 @@ class TestFrameToAscii:
         assert len(result) > 0
         assert "\033[38;2;" in result[0]
 
+    def test_color_rows_reset_only_once(self, sample_frame):
+        result = frame_to_ascii(sample_frame, width=20, color=True)
+        assert result[0].endswith("\033[0m")
+        assert result[0].count("\033[0m") == 1
+
+    def test_color_flat_frame_uses_one_prefix_per_row(self):
+        frame = np.zeros((40, 40, 3), dtype=np.uint8)
+        result = frame_to_ascii(frame, width=20, color=True)
+        assert result[0].count("\033[38;2;") == 1
+
     def test_grayscale_mode_no_ansi(self, sample_frame):
         result = frame_to_ascii(sample_frame, width=20, color=False)
         for row in result:

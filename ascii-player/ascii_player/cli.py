@@ -3,7 +3,7 @@
 import argparse
 
 from . import __version__
-from .config import ASCII_PRESETS, DEFAULT_AUDIO, DEFAULT_COLOR, DEFAULT_FPS, DEFAULT_WIDTH
+from .config import ASCII_PRESETS, DEFAULT_FPS, DEFAULT_WIDTH
 
 
 def parse_args():
@@ -53,8 +53,11 @@ Controls: Space=pause, Q=quit, +/-=speed, Arrows=seek
     parser.add_argument(
         "-w", "--width",
         type=lambda x: max(1, int(x)),
-        default=DEFAULT_WIDTH,
-        help=f"ASCII output width in characters (default: {DEFAULT_WIDTH})"
+        default=None,
+        help=(
+            f"ASCII output width in characters "
+            f"(default: {DEFAULT_WIDTH}, or the value from ascii_player.yaml)"
+        )
     )
     parser.add_argument(
         "-f", "--fps",
@@ -65,8 +68,14 @@ Controls: Space=pause, Q=quit, +/-=speed, Arrows=seek
     parser.add_argument(
         "-c", "--color",
         action="store_true",
-        default=DEFAULT_COLOR,
-        help="Enable ANSI truecolor output"
+        default=None,
+        help="Enable ANSI truecolor output (overrides config)"
+    )
+    parser.add_argument(
+        "--no-color",
+        dest="color",
+        action="store_false",
+        help="Disable ANSI truecolor output (overrides config)"
     )
     parser.add_argument(
         "-p", "--preset",
@@ -77,7 +86,7 @@ Controls: Space=pause, Q=quit, +/-=speed, Arrows=seek
     parser.add_argument(
         "--no-audio",
         action="store_true",
-        default=not DEFAULT_AUDIO,
+        default=False,
         help="Disable audio playback"
     )
     parser.add_argument(
@@ -109,7 +118,7 @@ Controls: Space=pause, Q=quit, +/-=speed, Arrows=seek
     parser.add_argument(
         "--lyrics-mode",
         choices=["split", "fullscreen"],
-        default="split",
+        default=None,
         help="Lyrics display mode (default: split)"
     )
     parser.add_argument(
@@ -126,7 +135,7 @@ Controls: Space=pause, Q=quit, +/-=speed, Arrows=seek
     parser.add_argument(
         "--visualizer",
         choices=["none", "bars", "wave"],
-        default="none",
+        default=None,
         help="Audio visualizer mode (default: none)"
     )
     parser.add_argument(

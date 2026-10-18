@@ -54,10 +54,18 @@ class FrameCache:
 
         try:
             with open(cache_path, "rb") as f:
-                if MSGPACK_AVAILABLE:
-                    data = msgpack.unpack(f, raw=False)
-                else:
-                    data = json.loads(f.read().decode("utf-8"))
+                raw = f.read()
+
+            data = None
+            if MSGPACK_AVAILABLE:
+                try:
+                    data = msgpack.unpackb(raw, raw=False)
+                except Exception:
+                    # Older caches and hand-written caches use JSON.
+                    data = None
+            if data is None:
+                data = json.loads(raw.decode("utf-8"))
+
             self.frames = {i: frame for i, frame in enumerate(data)}
             logger.info("Loaded {n} cached frames", n=len(self.frames))
             return self.frames
@@ -100,6 +108,17 @@ class FrameCache:
     def has_frame(self, frame_num):
         """Check if frame is cached."""
         return frame_num in self.frames
+
+    def is_complete(self, total_frames):
+        """Return True when every frame of the video is present.
+
+        A partial cache cannot be used safely: skipping ``cap.read()`` for
+        cached frames would desynchronize OpenCV's read position from the
+        playback frame counter.
+        """
+        if total_frames <= 0:
+            return False
+        return all(i in self.frames for i in range(total_frames))
 
     def clear(self):
         """Clear all cached frames."""

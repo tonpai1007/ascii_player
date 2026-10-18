@@ -12,7 +12,9 @@ from .core import frame_to_ascii
 class WebcamCapture:
     """Capture and display live webcam feed as ASCII art."""
 
-    _BACKENDS = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]
+    _WINDOWS_BACKENDS = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]
+    _MACOS_BACKENDS = [cv2.CAP_AVFOUNDATION, cv2.CAP_ANY]
+    _LINUX_BACKENDS = [cv2.CAP_V4L2, cv2.CAP_ANY]
 
     def __init__(self, camera_index=0, filter="none"):
         """Initialize webcam capture.
@@ -25,6 +27,15 @@ class WebcamCapture:
         self.cap = None
         self.filter = filter
         self._colorcycle_hue = 0.0
+
+    @classmethod
+    def _backends(cls):
+        """Return capture backends appropriate for the current platform."""
+        if sys.platform == "win32":
+            return cls._WINDOWS_BACKENDS
+        if sys.platform == "darwin":
+            return cls._MACOS_BACKENDS
+        return cls._LINUX_BACKENDS
 
     def apply_filter(self, frame):
         """Apply the selected filter to a frame.
@@ -56,7 +67,7 @@ class WebcamCapture:
             True if successful
         """
         try:
-            for backend in self._BACKENDS:
+            for backend in self._backends():
                 cap = cv2.VideoCapture(self.camera_index, backend)
                 if cap.isOpened():
                     self.cap = cap
@@ -95,7 +106,8 @@ class WebcamCapture:
         return frame if ret else None
 
 
-def run_webcam(width=80, color=False, preset="classic", target_fps=30, filter="none"):
+def run_webcam(width=80, color=False, preset="classic", target_fps=30, filter="none",
+               camera_index=0):
     """Run live ASCII webcam display.
 
     Args:
@@ -104,8 +116,9 @@ def run_webcam(width=80, color=False, preset="classic", target_fps=30, filter="n
         preset: ASCII character preset
         target_fps: Target frame rate
         filter: Filter mode - "none", "edge", "invert", "colorcycle", "mirror"
+        camera_index: Camera device index (0 = default)
     """
-    webcam = WebcamCapture(filter=filter)
+    webcam = WebcamCapture(camera_index=camera_index, filter=filter)
 
     if not webcam.open():
         raise SystemExit(1)

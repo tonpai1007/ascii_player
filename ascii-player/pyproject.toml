@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "Terminal ASCII video player with YouTube, lyrics, and TUI"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 authors = [
     {name = "ASCII Player Contributors"}
 ]
@@ -20,7 +20,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -52,9 +51,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ascii-player/ascii-player"
-Repository = "https://github.com/ascii-player/ascii-player"
-Issues = "https://github.com/ascii-player/ascii-player/issues"
+Homepage = "https://github.com/tonpai1007/ascii_player"
+Repository = "https://github.com/tonpai1007/ascii_player"
+Issues = "https://github.com/tonpai1007/ascii_player/issues"
 
 [project.scripts]
 ascii-player = "ascii_player.__main__:main"
@@ -77,3 +76,4 @@ select = ["E", "F", "W", "I"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
+addopts = "-ra"

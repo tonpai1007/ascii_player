@@ -3,7 +3,6 @@
 import sys
 from unittest.mock import patch
 from ascii_player.cli import parse_args
-from ascii_player.config import DEFAULT_WIDTH
 
 
 class TestParseArgs:
@@ -14,9 +13,9 @@ class TestParseArgs:
     def test_no_args(self):
         args = self._parse([])
         assert args.video is None
-        assert args.width == DEFAULT_WIDTH
+        assert args.width is None
         assert args.fps is None
-        assert args.color is False
+        assert args.color is None
 
     def test_video_path(self):
         args = self._parse(["video.mp4"])
@@ -49,6 +48,10 @@ class TestParseArgs:
     def test_color_flag(self):
         args = self._parse(["-c"])
         assert args.color is True
+
+    def test_no_color_flag(self):
+        args = self._parse(["--no-color"])
+        assert args.color is False
 
     def test_preset(self):
         args = self._parse(["-p", "blocks"])
@@ -86,6 +89,9 @@ class TestParseArgs:
         args = self._parse(["--lyrics-mode", "fullscreen"])
         assert args.lyrics_mode == "fullscreen"
 
+    def test_lyrics_mode_default_is_none(self):
+        assert self._parse([]).lyrics_mode is None
+
     def test_webcam(self):
         args = self._parse(["--webcam"])
         assert args.webcam is True
@@ -97,6 +103,13 @@ class TestParseArgs:
     def test_tui(self):
         args = self._parse(["-t"])
         assert args.tui is True
+
+    def test_visualizer(self):
+        args = self._parse(["--visualizer", "bars"])
+        assert args.visualizer == "bars"
+
+    def test_visualizer_default_is_none(self):
+        assert self._parse([]).visualizer is None
 
     def test_combined_args(self):
         args = self._parse(["video.mp4", "-w", "100", "-c", "-p", "blocks", "--no-audio"])

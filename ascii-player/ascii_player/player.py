@@ -7,10 +7,17 @@ import time
 from typing import Optional, Tuple, List
 
 import cv2
-import numpy as np
 from loguru import logger
 
-from .audio import cleanup_audio, extract_audio, play_audio, restart_audio, stop_audio
+from .audio import (
+    cleanup_audio,
+    extract_audio,
+    pause_audio,
+    play_audio,
+    restart_audio,
+    resume_audio,
+    stop_audio,
+)
 from .cache import FrameCache
 from .config import PlayerConfig, Frame
 from .controls import PlaybackControls
@@ -69,6 +76,11 @@ class VideoPlayer:
         # Audio
         self.audio_path: Optional[str] = None
         self.audio_process = None
+        self._audio_paused: bool = False
+        self._last_speed: float = 1.0
+
+        # Frame cache
+        self._using_cache: bool = False
         
         # Visualizer
         self.visualizer: Optional[AudioVisualizer] = None
@@ -132,7 +144,10 @@ class VideoPlayer:
         self._setup_renderer()
 
     def _setup_controls(self) -> None:
-        """Initialize playback controls."""
+        """Initialize playback controls if enabled."""
+        if not self.config.controls:
+            self.controls = None
+            return
         self.controls = PlaybackControls()
         self.controls.start()
 
@@ -151,7 +166,7 @@ class VideoPlayer:
         if self.config.audio and not self.config.export:
             self.audio_path = extract_audio(self.video_path)
             if self.audio_path:
-                self.audio_process = play_audio(self.audio_path)
+                self.audio_process = play_audio(self.audio_path, start_time=0.0)
 
     def _setup_visualizer(self) -> None:
         """Initialize audio visualizer if enabled."""
@@ -176,9 +191,17 @@ class VideoPlayer:
                 self.config.color, 
                 self.config.preset
             )
-            if cached:
+            if cached is not None and self.frame_cache.is_complete(self.total_frames):
+                self._using_cache = True
                 logger.info("Using cached frames - faster playback!")
             else:
+                if cached is not None:
+                    logger.info(
+                        "Incomplete frame cache ({n}/{total}) - rebuilding",
+                        n=len(cached),
+                        total=self.total_frames,
+                    )
+                    self.frame_cache.clear()
                 self.frame_cache.set_cache_path(
                     self.video_path, 
                     self.config.width, 
@@ -259,6 +282,7 @@ class VideoPlayer:
                 break
 
             if self._is_paused():
+                self._set_audio_paused(True)
                 if self._pause_start == 0.0:
                     self._pause_start = time.time()
                 time.sleep(0.1)
@@ -267,6 +291,7 @@ class VideoPlayer:
             if self._pause_start != 0.0:
                 self._total_paused += time.time() - self._pause_start
                 self._pause_start = 0.0
+                self._set_audio_paused(False)
 
             if self._handle_seek():
                 continue
@@ -314,9 +339,33 @@ class VideoPlayer:
             self.frame_num = max(0, min(self.total_frames - 1, self.frame_num + seek_frames))
             if self.cap:
                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.frame_num)
+            self._seek_audio(self.frame_num / self.video_fps)
             time.sleep(1.0 / self.fps)
             return True
         return False
+
+    def _set_audio_paused(self, paused: bool) -> None:
+        """Pause or resume the audio process to match playback state."""
+        if not self.audio_process or self._audio_paused == paused:
+            return
+        if paused:
+            pause_audio(self.audio_process)
+        else:
+            resume_audio(self.audio_process)
+        self._audio_paused = paused
+
+    def _seek_audio(self, position: float) -> None:
+        """Restart audio at the given media position (used after seeks/loops)."""
+        if not self.audio_process or not self.audio_path or not self.controls:
+            return
+        self.audio_process = restart_audio(
+            self.audio_process,
+            self.audio_path,
+            self.controls.get_volume(),
+            start_time=max(0.0, position),
+            paused=self._audio_paused,
+            speed=self.controls.get_speed(),
+        )
 
     def _get_current_time(self) -> float:
         """Get current playback time in seconds."""
@@ -329,11 +378,25 @@ class VideoPlayer:
             
         self.controls.set_current_time(current_time)
 
-        if self.audio_process:
-            new_volume = self.controls.get_volume()
-            if new_volume != self.last_volume:
-                self.last_volume = new_volume
-                self.audio_process = restart_audio(self.audio_process, self.audio_path, new_volume)
+        if not self.audio_process:
+            return
+
+        new_volume = self.controls.get_volume()
+        new_speed = self.controls.get_speed()
+        volume_changed = new_volume != self.last_volume
+        speed_changed = abs(new_speed - self._last_speed) >= 1e-3
+
+        if volume_changed or speed_changed:
+            self.last_volume = new_volume
+            self._last_speed = new_speed
+            self.audio_process = restart_audio(
+                self.audio_process,
+                self.audio_path,
+                new_volume,
+                start_time=current_time,
+                paused=self._audio_paused,
+                speed=new_speed,
+            )
 
     def _handle_ab_loop(self, current_time: float) -> None:
         """Handle A-B loop functionality."""
@@ -346,6 +409,7 @@ class VideoPlayer:
                 self.frame_num = int(ab_lo * self.video_fps)
                 if self.cap:
                     self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.frame_num)
+                self._seek_audio(ab_lo)
                 time.sleep(1.0 / self.fps)
 
     def _get_video_width(self) -> int:
@@ -428,18 +492,18 @@ class VideoPlayer:
         _write_frame("\033[H", lines)
 
     def _handle_timing(self, frame_start: float) -> None:
-        """Handle frame timing and sleep."""
+        """Sleep so the frame is displayed for its target duration.
+
+        Timing is measured per frame (rather than against an absolute start
+        time) so changing speed mid-playback does not cause a burst of frames
+        while the scheduler catches up.
+        """
         frame_interval = 1.0 / self.fps
         speed = self.controls.get_speed() if self.controls else 1.0
-        target = (
-            self.start_time
-            + self._total_paused
-            + (self.frame_num + 1) * frame_interval / speed
-        )
-        sleep_time = target - time.time()
+        remaining = frame_interval / speed - (time.time() - frame_start)
 
-        if sleep_time > 0:
-            time.sleep(sleep_time)
+        if remaining > 0:
+            time.sleep(remaining)
         else:
             self.skipped += 1
 
@@ -464,10 +528,11 @@ class VideoPlayer:
         if self.cap:
             self.cap.release()
 
+        resume_audio(self.audio_process)
         stop_audio(self.audio_process)
         cleanup_audio(self.audio_path)
 
-        if self.frame_cache:
+        if self.frame_cache and not self._using_cache:
             self.frame_cache.save()
 
         if self.exporter:
@@ -600,6 +665,7 @@ def play_video(
         lyrics_mode=lyrics_mode,
         cache=cache,
         visualizer=visualizer,
+        controls=controls,
     )
     
     player = VideoPlayer(video_path, config)

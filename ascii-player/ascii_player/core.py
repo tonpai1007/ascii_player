@@ -68,21 +68,32 @@ def _grayscale_ascii(gray, chars):
 
 
 def _color_ascii(resized, gray, chars):
-    """Convert color image to ANSI truecolor ASCII."""
+    """Convert color image to ANSI truecolor ASCII.
+
+    Consecutive pixels with the same RGB value share a single SGR sequence and
+    each row is reset once, which is substantially smaller (and faster to
+    write) than emitting a color prefix and reset for every character.
+    """
+    if gray.size == 0:
+        return []
+
     char_arr = _char_array(chars)
     n_levels = len(chars) - 1
     idx = np.minimum(gray.astype(np.uint16) * n_levels // 255, n_levels).astype(np.uint16)
-    char_grid = char_arr[idx]
+    char_rows = char_arr[idx].tolist()
+    rgb_rows = resized[..., ::-1].tolist()
 
-    rgb = resized[..., ::-1]
-    h, w = gray.shape
+    lines = []
+    for rgb_row, char_row in zip(rgb_rows, char_rows):
+        parts = []
+        last_color = None
+        for (r, g, b), char in zip(rgb_row, char_row):
+            color = (r, g, b)
+            if color != last_color:
+                parts.append(f"\033[38;2;{r};{g};{b}m")
+                last_color = color
+            parts.append(char)
+        parts.append("\033[0m")
+        lines.append("".join(parts))
 
-    rgb_flat = rgb.reshape(-1, 3).tolist()
-    char_flat = char_grid.ravel().tolist()
-
-    parts = [
-        f"\033[38;2;{r};{g};{b}m{c}\033[0m"
-        for (r, g, b), c in zip(rgb_flat, char_flat)
-    ]
-
-    return [''.join(parts[i * w:(i + 1) * w]) for i in range(h)]
+    return lines

@@ -1,0 +1,18 @@
+# Example ASCII Player configuration.
+# Copy to ascii_player.yaml in the directory you run the player from.
+#
+# Command-line flags always take precedence over these values.
+
+width: 100          # output width in characters
+fps: null           # null = use the video's frame rate
+color: true         # ANSI truecolor output
+audio: true         # play audio (requires ffmpeg/ffplay)
+preset: classic     # classic, blocks, dots, binary, simple, detailed, unicode, braille
+
+# Lyrics: "auto" looks for a sibling .lrc/.srt/.ass/.ssa file.
+lyrics: auto
+
+# TUI defaults
+export: none        # none, gif, mp4
+output: ""          # export filename
+cache: false        # cache rendered frames for replay

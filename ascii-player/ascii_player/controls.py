@@ -1,5 +1,7 @@
 """Keyboard controls for video playback with Command pattern."""
 
+import os
+import select
 import sys
 import threading
 import time
@@ -150,6 +152,16 @@ class PlaybackControls:
 
     def start(self) -> None:
         """Start listening for keyboard input."""
+        if self._thread and self._thread.is_alive():
+            return
+        try:
+            if not sys.stdin.isatty():
+                logger.debug("stdin is not a TTY - keyboard controls disabled")
+                return
+        except (AttributeError, ValueError):
+            logger.debug("stdin has no isatty() - keyboard controls disabled")
+            return
+
         if sys.platform == "win32":
             self._thread = threading.Thread(target=self._windows_input, daemon=True)
         else:
@@ -176,7 +188,12 @@ class PlaybackControls:
             logger.warning("msvcrt not available - keyboard controls disabled")
 
     def _unix_input(self) -> None:
-        """Handle input on Unix."""
+        """Handle input on Unix.
+
+        ``select`` keeps the reader from blocking forever on ``read()``, so
+        the thread can observe ``quit`` and restore the terminal's original
+        settings instead of leaving the shell in raw mode.
+        """
         try:
             import termios
             import tty
@@ -187,10 +204,12 @@ class PlaybackControls:
             try:
                 tty.setraw(fd)
                 while not self.quit:
-                    if sys.stdin.readable():
-                        char = sys.stdin.read(1)
-                        if char:
-                            self._process_key(char.encode())
+                    ready, _, _ = select.select([fd], [], [], 0.1)
+                    if not ready:
+                        continue
+                    char = os.read(fd, 1)
+                    if char:
+                        self._process_key(char)
             finally:
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         except Exception as e:

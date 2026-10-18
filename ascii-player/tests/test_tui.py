@@ -134,7 +134,7 @@ class TestRecentFiles:
             app._record_recent("C:\\videos\\movie.mp4")
             assert os.path.exists("ascii_player_recent.txt")
             recent = [line.strip() for line in open("ascii_player_recent.txt", encoding="utf-8")]
-            assert "C:\\videos\\movie.mp4" in recent
+            assert os.path.abspath(r"C:\videos\movie.mp4") in recent
 
         _scenario(app, check)
 

@@ -23,11 +23,12 @@ DEFAULT_COLOR = False
 DEFAULT_AUDIO = True
 
 LOG_FORMAT = "<green>{time:HH:mm:ss}</green> | <level>{level:<8}</level> | {message}"
-LOG_FILE = "ascii_player.log"
 LOG_ROTATION = "5 MB"
 LOG_RETENTION = "7 days"
 
-YOUTUBE_REGEX = r'(https?://)?(www\.|m\.)?(youtube\.com|youtu\.be|youtube\.com/watch\?v=|youtube\.com/shorts/)'
+YOUTUBE_REGEX = (
+    r"^(?:https?://)?(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)(?:/|$)"
+)
 YOUTUBE_MAX_HEIGHT = 720
 YOUTUBE_TIMEOUT = 300
 
@@ -38,6 +39,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "color": DEFAULT_COLOR,
     "audio": DEFAULT_AUDIO,
     "preset": DEFAULT_PRESET,
+    "lyrics_mode": "split",
+    "visualizer": "none",
 }
 
 
@@ -58,6 +61,8 @@ class PlayerConfig:
         cache: Enable frame caching
         webcam: Enable webcam mode
         camera_index: Camera device index
+        visualizer: Audio visualizer mode ("none", "bars", "wave")
+        controls: Enable keyboard controls
     """
     width: int = 80
     color: bool = False
@@ -72,6 +77,7 @@ class PlayerConfig:
     webcam: bool = False
     camera_index: int = 0
     visualizer: str = "none"
+    controls: bool = True
 
     @classmethod
     def from_args(cls, args: Any) -> 'PlayerConfig':
@@ -97,6 +103,7 @@ class PlayerConfig:
             webcam=getattr(args, 'webcam', False),
             camera_index=getattr(args, 'camera', 0),
             visualizer=getattr(args, 'visualizer', 'none'),
+            controls=not getattr(args, 'no_controls', False),
         )
 
     def validate(self) -> None:
@@ -138,6 +145,7 @@ class PlayerConfig:
             'webcam': self.webcam,
             'camera_index': self.camera_index,
             'visualizer': self.visualizer,
+            'controls': self.controls,
         }
 
     @classmethod
@@ -164,6 +172,7 @@ class PlayerConfig:
             webcam=data.get('webcam', False),
             camera_index=data.get('camera_index', 0),
             visualizer=data.get('visualizer', 'none'),
+            controls=data.get('controls', True),
         )
 
 

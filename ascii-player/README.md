@@ -24,14 +24,14 @@ pip install ascii-player
 Or from source:
 
 ```bash
-git clone https://github.com/yourusername/ascii-player.git
-cd ascii-player
-pip install -e .
+git clone https://github.com/tonpai1007/ascii_player.git
+cd ascii_player/ascii-player
+pip install -e ".[dev]"
 ```
 
 ### Dependencies
 
-- Python 3.8+
+- Python 3.9+
 - OpenCV (`opencv-python`)
 - NumPy
 - Pillow
@@ -39,6 +39,8 @@ pip install -e .
 - Loguru
 - PyYAML
 - Textual (for TUI)
+
+Audio playback and MP4 export additionally require `ffmpeg`/`ffplay` on `PATH`.
 
 ## Usage
 
@@ -53,6 +55,9 @@ ascii-player video.mp4 -c
 
 # Wider output
 ascii-player video.mp4 -w 160
+
+# Disable color even if the config file enables it
+ascii-player video.mp4 --no-color
 
 # Use block characters preset
 ascii-player video.mp4 -p blocks
@@ -117,6 +122,10 @@ Supported formats:
 - **SRT**: Subtitle format with timestamps
 - **ASS/SSA**: Advanced SubStation Alpha
 
+If `lyrics: auto` is set in `ascii_player.yaml` (the default) and no `-l`
+argument is given, the player looks for a sibling `.lrc`/`.srt`/`.ass`/`.ssa`
+file with the same basename as the video.
+
 ### Webcam Mode
 
 ```bash
@@ -125,7 +134,12 @@ ascii-player --webcam
 
 # Use specific camera
 ascii-player --webcam --camera 1
+
+# Apply a live filter
+ascii-player --webcam --filter edge
 ```
+
+Filters: `none`, `edge`, `invert`, `colorcycle`, `mirror`.
 
 ### Export
 
@@ -165,16 +179,27 @@ Cached frames are stored in `.cache/` directory.
 
 ## Configuration
 
-Create an `ascii_player.yaml` file in the current directory:
+Copy `ascii_player.example.yaml` to `ascii_player.yaml` in the directory you
+run the player from:
 
 ```yaml
 width: 120
 color: true
 preset: blocks
 audio: true
+fps: null          # null = use the video's frame rate
+lyrics: auto       # auto-detect sibling lyrics/subtitle files
+cache: false
+export: none       # none, gif, mp4
 ```
 
-The TUI saves its settings (width, preset, color, audio, fps, export, output, lyrics, cache) back to this file on play.
+Command-line flags always take precedence over the config file, including
+explicitly passing a value equal to the built-in default (for example
+`-w 80`). The TUI saves its settings back to this file on play.
+
+Logs are written to `~/.ascii_player/ascii_player.log` (override with the
+`ASCII_PLAYER_LOG` environment variable). Console output is limited to
+warnings and errors so log lines do not corrupt the ASCII frame.
 
 ## ASCII Presets
 
@@ -184,10 +209,10 @@ The TUI saves its settings (width, preset, color, audio, fps, export, output, ly
 | blocks | ` ░▒▓█` | Unicode block elements |
 | dots | ` ·•●` | Dot characters |
 | binary | ` 01` | Binary digits |
-| simple | ` .oO` | Simple ramp |
+| simple | ` .oO0` | Simple ramp |
 | detailed | ` .'`^",:;Il!i><~+_-?][}{1)(|\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$` | Full ASCII |
-| unicode | ` ◐◑◒◓●` | Unicode circles |
-| braille | ` ⠁⠃⠇⠏` | Braille patterns |
+| unicode | ` ▁▂▃▄▅▆▇█` | Unicode block heights |
+| braille | full 8-dot braille range | Braille patterns |
 
 ## Examples
 
@@ -205,6 +230,18 @@ ascii-player video.mp4 -l lyrics.lrc --export gif -o lyrics_video.gif
 ascii-player https://youtu.be/abc123 -c -p unicode -w 160
 ```
 
+## Development
+
+```bash
+cd ascii-player
+pip install -e ".[dev]"
+pytest -q
+ruff check --select E9,F63,F7,F82 .
+```
+
+The test suite uses mocks for `ffmpeg`/`ffplay` and a tiny generated video
+fixture, so it runs without a webcam, audio device, or terminal.
+
 ## License
 
-MIT License
+MIT License. See [LICENSE](../LICENSE).

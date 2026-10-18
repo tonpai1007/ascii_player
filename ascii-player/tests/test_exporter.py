@@ -1,9 +1,7 @@
 """Tests for ascii_player.exporter - GIF/MP4 export."""
 
 import os
-import shutil
 import tempfile
-from unittest.mock import patch, MagicMock
 
 import pytest
 

@@ -5,6 +5,30 @@ import re
 
 from loguru import logger
 
+LYRICS_EXTENSIONS = (".lrc", ".srt", ".ass", ".ssa")
+
+
+def find_lyrics_file(video_path):
+    """Return a same-name sibling lyrics file for ``video_path``, if any.
+
+    Args:
+        video_path: Path to the video file
+
+    Returns:
+        Path to a matching .lrc/.srt/.ass/.ssa file, or None
+    """
+    if not video_path:
+        return None
+    base, _ = os.path.splitext(video_path)
+    for ext in LYRICS_EXTENSIONS:
+        candidate = base + ext
+        if os.path.exists(candidate):
+            return candidate
+        upper = base + ext.upper()
+        if os.path.exists(upper):
+            return upper
+    return None
+
 
 def _read_file_with_encoding(file_path):
     """Read file with encoding fallback for Windows compatibility.

@@ -1,6 +1,5 @@
 """Tests for ascii_player.settings - configuration management."""
 
-import os
 from ascii_player.settings import load_config, save_config, merge_args_with_config
 from ascii_player.config import DEFAULT_CONFIG, DEFAULT_WIDTH
 
@@ -23,6 +22,12 @@ class TestLoadConfig:
         config = load_config(str(path))
         assert config == DEFAULT_CONFIG
 
+    def test_non_mapping_yaml_is_ignored(self, tmp_dir):
+        path = tmp_dir / "list.yaml"
+        path.write_text("- 1\n- 2\n", encoding="utf-8")
+        config = load_config(str(path))
+        assert config == DEFAULT_CONFIG
+
 
 class TestSaveConfig:
     def test_save_creates_file(self, tmp_dir):
@@ -37,6 +42,11 @@ class TestSaveConfig:
         assert loaded["width"] == 120
         assert loaded["preset"] == "blocks"
 
+    def test_save_leaves_no_temp_files(self, tmp_dir):
+        path = tmp_dir / "atomic.yaml"
+        save_config({"width": 120}, str(path))
+        assert list(tmp_dir.glob(".ascii_player_*")) == []
+
     def test_save_without_yaml(self, tmp_dir, monkeypatch):
         import ascii_player.settings as mod
         monkeypatch.setattr(mod, "YAML_AVAILABLE", False)
@@ -48,11 +58,13 @@ class TestSaveConfig:
 class TestMergeArgs:
     def _make_args(self, **kwargs):
         defaults = {
-            "width": DEFAULT_WIDTH,
+            "width": None,
             "fps": None,
-            "color": False,
+            "color": None,
             "no_audio": False,
             "preset": None,
+            "visualizer": None,
+            "lyrics_mode": None,
         }
         defaults.update(kwargs)
 
@@ -69,12 +81,20 @@ class TestMergeArgs:
         merged = merge_args_with_config(args, DEFAULT_CONFIG.copy())
         assert merged["width"] == 120
 
-    def test_default_width_not_overridden(self):
-        args = self._make_args(width=DEFAULT_WIDTH)
+    def test_unspecified_width_uses_config(self):
+        args = self._make_args(width=None)
         config = DEFAULT_CONFIG.copy()
         config["width"] = 999
         merged = merge_args_with_config(args, config)
         assert merged["width"] == 999
+
+    def test_explicit_default_width_overrides_config(self):
+        # `-w 80` must win even though 80 is also the built-in default.
+        args = self._make_args(width=DEFAULT_WIDTH)
+        config = DEFAULT_CONFIG.copy()
+        config["width"] = 999
+        merged = merge_args_with_config(args, config)
+        assert merged["width"] == DEFAULT_WIDTH
 
     def test_fps_overrides_when_set(self):
         args = self._make_args(fps=60.0)
@@ -92,6 +112,46 @@ class TestMergeArgs:
         args = self._make_args(color=True)
         merged = merge_args_with_config(args, DEFAULT_CONFIG.copy())
         assert merged["color"] is True
+
+    def test_no_color_overrides_config(self):
+        args = self._make_args(color=False)
+        config = DEFAULT_CONFIG.copy()
+        config["color"] = True
+        merged = merge_args_with_config(args, config)
+        assert merged["color"] is False
+
+    def test_no_audio_overrides_config(self):
+        args = self._make_args(no_audio=True)
+        config = DEFAULT_CONFIG.copy()
+        config["audio"] = True
+        merged = merge_args_with_config(args, config)
+        assert merged["audio"] is False
+
+    def test_unspecified_audio_uses_config(self):
+        args = self._make_args(no_audio=False)
+        config = DEFAULT_CONFIG.copy()
+        config["audio"] = False
+        merged = merge_args_with_config(args, config)
+        assert merged["audio"] is False
+
+    def test_visualizer_overrides_config(self):
+        args = self._make_args(visualizer="bars")
+        merged = merge_args_with_config(args, DEFAULT_CONFIG.copy())
+        assert merged["visualizer"] == "bars"
+
+    def test_lyrics_mode_overrides_config(self):
+        args = self._make_args(lyrics_mode="fullscreen")
+        merged = merge_args_with_config(args, DEFAULT_CONFIG.copy())
+        assert merged["lyrics_mode"] == "fullscreen"
+
+    def test_bad_config_values_are_normalized(self):
+        args = self._make_args()
+        config = DEFAULT_CONFIG.copy()
+        config.update({"width": "wide", "fps": 0, "preset": "unknown"})
+        merged = merge_args_with_config(args, config)
+        assert merged["width"] == DEFAULT_WIDTH
+        assert merged["fps"] == 0.1
+        assert merged["preset"] == "classic"
 
     def test_preset_overrides(self):
         args = self._make_args(preset="blocks")

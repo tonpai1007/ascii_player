@@ -1,9 +1,53 @@
 """Split-screen renderer for video + lyrics display with Strategy pattern."""
 
+import re
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Optional
+from typing import TYPE_CHECKING, List, Tuple, Optional
 
 from .config import Frame
+
+if TYPE_CHECKING:
+    from .lyrics import LyricsLine
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _visible_len(text: str) -> int:
+    """Length of a string ignoring ANSI escape sequences."""
+    return len(_ANSI_RE.sub("", text))
+
+
+def _truncate_visible(text: str, width: int) -> str:
+    """Truncate to ``width`` visible characters, keeping ANSI sequences."""
+    if width <= 0:
+        return ""
+    out: List[str] = []
+    visible = 0
+    i = 0
+    while i < len(text):
+        match = _ANSI_RE.match(text, i)
+        if match:
+            out.append(match.group(0))
+            i = match.end()
+            continue
+        if visible >= width:
+            break
+        out.append(text[i])
+        visible += 1
+        i += 1
+    if visible >= width and "\x1b[" in text:
+        out.append("\033[0m")
+    return "".join(out)
+
+
+def _pad_visible(text: str, width: int) -> str:
+    """Right-pad a string to ``width`` visible characters."""
+    return text + " " * max(0, width - _visible_len(text))
+
+
+def _fit(text: str, width: int) -> str:
+    """Truncate and pad to an exact visible width."""
+    return _pad_visible(_truncate_visible(text, width), width)
 
 
 class Renderer(ABC):
@@ -61,10 +105,7 @@ class SplitRenderer(Renderer):
             left = ascii_frame[i] if i < video_lines else " " * self.video_width
             right = lyrics_lines[i] if i < len(lyrics_lines) else " " * self.lyrics_width
 
-            left = left[:self.video_width].ljust(self.video_width)
-            right = right[:self.lyrics_width].ljust(self.lyrics_width)
-
-            output.append(f"{left} │ {right}")
+            output.append(f"{_fit(left, self.video_width)} │ {_fit(right, self.lyrics_width)}")
 
         return output
 
@@ -114,8 +155,9 @@ class SplitRenderer(Renderer):
             lines.append(f"\033[1;35m{info}\033[0m")
 
         time_str = f"{current:.0f}s / {duration:.0f}s"
-        bar_width = self.total_width - len(time_str) - 4
+        bar_width = max(0, self.total_width - len(time_str) - 4)
         filled = int(bar_width * (current / duration)) if duration > 0 else 0
+        filled = max(0, min(bar_width, filled))
         bar = "█" * filled + "░" * (bar_width - filled)
         lines.append(f"\033[1;36m{bar}\033[0m {time_str}")
 
@@ -172,12 +214,11 @@ class FullscreenRenderer(Renderer):
                 text = text[:self.width - 7] + "..."
 
             if is_current:
-                formatted = f"\033[1;32m{'':^{self.width}}\033[0m"
-                formatted += f"\n\033[1;33m  ♪ {text} ♪\033[0m"
+                output.append("")
+                output.append(f"\033[1;33m{'♪ ' + text + ' ♪':^{self.width}}\033[0m")
             else:
                 formatted = f"\033[90m{text:^{self.width}}\033[0m"
-
-            output.append(formatted)
+                output.append(formatted)
 
         for _ in range(padding):
             output.append("")
