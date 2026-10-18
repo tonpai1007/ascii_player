@@ -4,8 +4,6 @@ A terminal application that converts videos into ASCII art, with local file
 and YouTube playback, synchronized audio/lyrics, a Textual TUI, live webcam
 mode, and GIF/MP4 export.
 
-[![CI](https://github.com/tonpai1007/ascii_player/actions/workflows/ci.yml/badge.svg)](https://github.com/tonpai1007/ascii_player/actions/workflows/ci.yml)
-
 ## Quick start
 
 ```bash

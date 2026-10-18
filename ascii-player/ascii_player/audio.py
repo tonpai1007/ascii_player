@@ -196,6 +196,13 @@ def stop_audio(process):
         process: subprocess.Popen process to terminate
     """
     if process and process.poll() is None:
+        # A SIGSTOPped process will not handle SIGTERM until it is continued,
+        # so resume it first to keep shutdown and seeking responsive.
+        if os.name != "nt":
+            try:
+                process.send_signal(signal.SIGCONT)
+            except Exception:
+                pass
         try:
             process.terminate()
             process.wait(timeout=5)

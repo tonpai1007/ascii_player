@@ -162,6 +162,12 @@ class TestStopAudio:
         stop_audio(mock_proc)
         mock_proc.terminate.assert_called_once()
 
+    def test_stop_resumes_paused_process_first(self):
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        stop_audio(mock_proc)
+        mock_proc.send_signal.assert_called_once_with(signal.SIGCONT)
+
     def test_stop_already_exited(self):
         mock_proc = MagicMock()
         mock_proc.poll.return_value = 0
