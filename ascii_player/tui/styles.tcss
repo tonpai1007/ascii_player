@@ -1,0 +1,286 @@
+Screen {
+    layout: horizontal;
+}
+
+#sidebar {
+    width: 40%;
+    height: 100%;
+    min-width: 44;
+    border: tall $primary;
+    padding: 1;
+}
+
+#main {
+    width: 60%;
+    height: 100%;
+    padding: 1 1 1 0;
+}
+
+.section-title {
+    text-style: bold;
+    color: $accent;
+    margin-bottom: 1;
+}
+
+.url-bar {
+    dock: top;
+    height: auto;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+.url-input {
+    width: 1fr;
+    margin-right: 1;
+}
+
+.play-url-btn {
+    min-width: 14;
+}
+
+/* File browser */
+.dir-input-row {
+    margin-bottom: 1;
+}
+
+.dir-input {
+    width: 1fr;
+}
+
+#file-list {
+    height: 1fr;
+    border: round $primary-darken-1;
+    margin-bottom: 1;
+}
+
+#file-list:focus {
+    border: round $accent;
+}
+
+.file-item {
+    padding: 0 1;
+}
+
+.file-item.video {
+    color: $text;
+}
+
+.file-item.lyrics {
+    color: $text-muted;
+}
+
+ListItem.selected {
+    background: $accent;
+    color: $text;
+}
+
+ListItem.selected .file-item {
+    color: $text;
+    text-style: bold;
+}
+
+#current-dir {
+    text-style: bold;
+    color: $accent;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.browser-buttons {
+    margin-top: 1;
+}
+
+.browser-buttons Button {
+    min-width: 9;
+    margin-right: 1;
+}
+
+/* Recent */
+#recent-title {
+    text-style: bold;
+    color: $text-muted;
+    margin-top: 1;
+}
+
+#recent-list {
+    height: 6;
+    border: hkey none;
+}
+
+.recent-item {
+    padding: 0 1;
+    color: $text-muted;
+}
+
+ListItem:hover {
+    background: $primary-darken-2;
+}
+
+/* Selected file */
+#selected-file {
+    text-style: bold;
+    color: $success;
+    margin: 1 0;
+    padding: 0 1;
+    min-height: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Settings */
+.settings-inner {
+    margin-top: 1;
+}
+
+.setting-row {
+    height: auto;
+    margin-bottom: 0;
+}
+
+.setting-label {
+    width: 9;
+    color: $text-muted;
+}
+
+.setting-input {
+    width: 1fr;
+}
+
+.setting-select {
+    width: 1fr;
+}
+
+/* Command preview */
+#cmd-preview {
+    color: $text-muted;
+    border: none;
+    padding: 0;
+    margin-top: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Inline preview */
+.preview-inner {
+    height: auto;
+}
+
+#preview-body {
+    max-height: 16;
+    border: round $primary-darken-1;
+    padding: 0 1 1 1;
+    overflow-y: auto;
+    color: $text;
+    content-align: center middle;
+}
+
+#status-bar {
+    dock: bottom;
+    height: 1;
+    background: $surface-darken-1;
+    padding: 0 1;
+}
+
+#status-text {
+    width: 1fr;
+}
+
+#key-hints {
+    color: $text-muted;
+    padding-right: 2;
+}
+
+#version-text {
+    color: $text-muted;
+}
+
+.controls {
+    dock: bottom;
+    height: 3;
+    padding: 1 0;
+    margin-bottom: 1;
+}
+
+#btn-play {
+    background: $success;
+    color: $text;
+    min-width: 14;
+}
+
+#btn-play:hover {
+    background: $success-darken-1;
+}
+
+#btn-webcam {
+    background: $warning;
+    color: $text;
+    min-width: 14;
+}
+
+#btn-webcam:hover {
+    background: $warning-darken-1;
+}
+
+#btn-play-url {
+    background: $accent;
+    color: $text;
+    min-width: 14;
+}
+
+#btn-play-url:hover {
+    background: $accent-darken-1;
+}
+
+RichLog {
+    height: 1fr;
+    border: tall $primary;
+}
+
+PlaylistPanel {
+    border: tall $primary;
+    padding: 1;
+}
+
+#playlist-list {
+    height: 8;
+    border: round $primary-darken-1;
+}
+
+.playlist-buttons {
+    height: 3;
+}
+
+.playlist-buttons Button {
+    margin: 0 1;
+}
+
+#help-dialog {
+    width: 50;
+    height: auto;
+    border: round $accent;
+    background: $surface;
+    padding: 1;
+    align: center middle;
+}
+
+#help-title {
+    text-style: bold;
+    color: $accent;
+    text-align: center;
+}
+
+#help-body {
+    text-align: left;
+    padding: 0 2;
+}
+
+#picker-container {
+    width: 80;
+    height: 20;
+    border: round $accent;
+    background: $surface;
+}
+
+#picker-tree {
+    height: 1fr;
+}

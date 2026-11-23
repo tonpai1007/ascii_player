@@ -1,8 +1,14 @@
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
+dist/
+build/
+.cache/
+.pytest_cache/
+.ruff_cache/
+.deepeval/
 ascii_player.log
 ascii_player.yaml
 ascii_player_recent.txt
-.pytest_cache/
-.ruff_cache/
+ascii_player_theme.txt
