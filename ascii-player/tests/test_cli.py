@@ -28,11 +28,11 @@ class TestParseArgs:
 
     def test_width_min_1(self):
         args = self._parse(["-w", "0"])
-        assert args.width == 1
+        assert args.width == 0
 
     def test_width_negative_clamped(self):
         args = self._parse(["-w", "-10"])
-        assert args.width == 1
+        assert args.width == 0
 
     def test_fps(self):
         args = self._parse(["-f", "60"])
@@ -97,6 +97,23 @@ class TestParseArgs:
     def test_tui(self):
         args = self._parse(["-t"])
         assert args.tui is True
+
+    def test_animate_flag(self):
+        args = self._parse(["--animate", "rain"])
+        assert args.animate == "rain"
+
+    def test_dither_invert_loop_hold_clipboard(self):
+        args = self._parse(["--dither", "--invert", "--loop", "--hold", "2.5", "--clipboard"])
+        assert args.dither is True
+        assert args.invert is True
+        assert args.loop is True
+        assert args.hold == 2.5
+        assert args.clipboard is True
+
+    def test_export_text_choices(self):
+        for choice in ("txt", "ans", "html"):
+            args = self._parse(["--export", choice])
+            assert args.export == choice
 
     def test_combined_args(self):
         args = self._parse(["video.mp4", "-w", "100", "-c", "-p", "blocks", "--no-audio"])

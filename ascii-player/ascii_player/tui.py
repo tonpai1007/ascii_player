@@ -1,6 +1,7 @@
 """Terminal User Interface for ASCII Video Player."""
 
 import os
+import time
 import re
 import subprocess
 import sys
@@ -9,9 +10,11 @@ from collections import OrderedDict
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Vertical, Horizontal, Vertical
 from textual.events import Key
+from textual.screen import Screen
 from textual.widgets import (
+    DirectoryTree,
     Button,
     Footer,
     Header,
@@ -26,6 +29,21 @@ from textual.widgets import (
 
 from . import __version__
 from .config import ASCII_PRESETS
+from .images import (
+    IMAGE_EXT,
+    clipboard_image,
+    clipboard_text,
+    decode_lines,
+    grid_lines,
+    image_to_grid,
+    is_image_file,
+    is_image_url,
+    load_image,
+    RainAnimator,
+    render_preview_lines,
+    save_clipboard_image,
+    type_lines,
+)
 from .settings import load_config, save_config
 
 PYTHON = sys.executable or "python"
@@ -185,6 +203,12 @@ class FileBrowser(Static):
                         except OSError:
                             size = ""
                         self.entries.append((f"{entry}  [{size}]", full_path, "video"))
+                    elif entry.lower().endswith(IMAGE_EXT):
+                        try:
+                            size = self._format_size(os.path.getsize(full_path))
+                        except OSError:
+                            size = ""
+                        self.entries.append((f"{entry}  [{size}]", full_path, "image"))
                     elif entry.lower().endswith(LYRICS_EXT):
                         self.entries.append((entry, full_path, "lyrics"))
                 except OSError:
@@ -213,6 +237,8 @@ class FileBrowser(Static):
                 line = f"[bold]{name}/[/bold]" if name != ".." else f"[dim]{name}[/dim]"
             elif kind == "video":
                 line = f"{name}"
+            elif kind == "image":
+                line = f"[magenta]{name}[/magenta]"
             else:
                 line = f"[cyan]{name}[/cyan]"
             self._seq += 1
@@ -304,6 +330,8 @@ class FileBrowser(Static):
             ext = os.path.splitext(expanded)[1].lower()
             if ext in LYRICS_EXT:
                 self.app.select_file(expanded, "lyrics")
+            elif ext in IMAGE_EXT:
+                self.app.select_file(expanded, "image")
             else:
                 self.app.select_file(expanded, "video")
                 self.query_one("#log").write(
@@ -387,6 +415,49 @@ class SettingsPanel(Static):
                     id="select-cache",
                     classes="setting-select"
                 )
+            with Horizontal(classes="setting-row"):
+                yield Label("Anim:", classes="setting-label")
+                yield Select(
+                    [(name, name) for name in ("none", "decode", "type", "rain")],
+                    value="decode",
+                    id="select-animate",
+                    classes="setting-select"
+                )
+            with Horizontal(classes="setting-row"):
+                yield Label("Dither:", classes="setting-label")
+                yield Select(
+                    [("Off", False), ("On", True)],
+                    value=False,
+                    id="select-dither",
+                    classes="setting-select"
+                )
+            with Horizontal(classes="setting-row"):
+                yield Label("Invert:", classes="setting-label")
+                yield Select(
+                    [("Off", False), ("On", True)],
+                    value=False,
+                    id="select-invert",
+                    classes="setting-select"
+                )
+            with Horizontal(classes="setting-row"):
+                yield Label("Loop:", classes="setting-label")
+                yield Select(
+                    [("Off", False), ("On", True)],
+                    value=False,
+                    id="select-loop",
+                    classes="setting-select"
+                )
+            with Horizontal(classes="setting-row"):
+                yield Label("Crop:", classes="setting-label")
+                yield Select(
+                    [("Off", False), ("On", True)],
+                    value=False,
+                    id="select-crop",
+                    classes="setting-select"
+                )
+            with Horizontal(classes="setting-row"):
+                yield Label("Aspect:", classes="setting-label")
+                yield Input(value="0.55", id="input-aspect", classes="setting-input")
 
     def collect(self):
         """Return a dict of current settings."""
@@ -400,6 +471,12 @@ class SettingsPanel(Static):
             "output": self.query_one("#input-output").value,
             "lyrics": (self.query_one("#select-lyrics").value or "auto"),
             "cache": bool(self.query_one("#select-cache").value),
+            "animate": (self.query_one("#select-animate").value or "decode"),
+            "dither": bool(self.query_one("#select-dither").value),
+            "invert": bool(self.query_one("#select-invert").value),
+            "loop": bool(self.query_one("#select-loop").value),
+            "crop": bool(self.query_one("#select-crop").value),
+            "aspect": self.query_one("#input-aspect").value,
         }
 
     def load_from_config(self, cfg):
@@ -420,6 +497,18 @@ class SettingsPanel(Static):
         if lyrics in ("auto", "split", "fullscreen"):
             self.query_one("#select-lyrics").value = lyrics
         self.query_one("#select-cache").value = bool(cfg.get("cache", False))
+        animate = cfg.get("animate", "decode")
+        if animate in ("none", "decode", "type", "rain"):
+            self.query_one("#select-animate").value = animate
+        self.query_one("#select-dither").value = bool(cfg.get("dither", False))
+        self.query_one("#select-invert").value = bool(cfg.get("invert", False))
+        self.query_one("#select-loop").value = bool(cfg.get("loop", False))
+        self.query_one("#select-crop").value = bool(cfg.get("crop", False))
+        aspect = cfg.get("aspect", 0.55)
+        try:
+            self.query_one("#input-aspect").value = str(float(aspect))
+        except (TypeError, ValueError):
+            self.query_one("#input-aspect").value = "0.55"
 
 
 class RecentList(Static):
@@ -465,7 +554,8 @@ class RecentList(Static):
         item = event.item
         path = getattr(item, "data_path", None)
         if path:
-            self.app.select_file(path, "video")
+            kind = "image" if (is_image_file(path) or is_image_url(str(path))) else "video"
+            self.app.select_file(path, kind)
 
 
 class CommandPreview(Static):
@@ -769,6 +859,7 @@ class ASCIITuiApp(App):
         Binding("w", "webcam", "Webcam"),
         Binding("g", "goto_path", "Go to path"),
         Binding("ctrl+l", "focus_log", "Log"),
+        Binding("ctrl+v", "paste_clipboard", "Paste"),
     ]
 
     def __init__(self):
@@ -799,6 +890,8 @@ class ASCIITuiApp(App):
             with Horizontal(classes="controls"):
                 yield Button("Play (P)", id="btn-play")
                 yield Button("Webcam (W)", id="btn-webcam")
+                yield Button("Paste (Ctrl+V)", id="btn-paste")
+                yield Button("Browse", id="btn-browse")
 
             yield InlinePreview()
 
@@ -813,18 +906,22 @@ class ASCIITuiApp(App):
         log = self.query_one("#log")
         log.write("[bold]How to use:[/bold]")
         log.write("")
-        log.write("  [bold green]Option 1 -- Play a local file:[/bold green]")
-        log.write("    1. Navigate with [Up]/[Down], jump with [Enter]")
-        log.write("    2. [Enter] on a [VID] selects it, [Enter] again plays")
+        log.write("  [bold green]Option 1 -- Play a local video/image:[/bold green]")
+        log.write("    1. Navigate with [Up]/[Down], open with [Enter]")
+        log.write("    2. [Enter] on a [VID]/[IMG] selects it, [Enter] again plays")
         log.write("")
-        log.write("  [bold cyan]Option 2 -- Play a YouTube URL:[/bold cyan]")
-        log.write("    1. Paste a link in the box above (Tab to reach it)")
+        log.write("  [bold cyan]Option 2 -- Play a YouTube URL or path:[/bold cyan]")
+        log.write("    1. Paste a link or path in the box above")
         log.write("    2. Press Enter or click [Play URL]")
         log.write("")
         log.write("  [bold yellow]Option 3 -- Live webcam:[/bold yellow]")
         log.write("    Click [Webcam] or press W")
         log.write("")
-        log.write("[dim][Backspace]=up dir  [G]=jump to path  [R]=refresh  [P]=play[/dim]")
+        log.write("  [bold magenta]Option 4 -- Clipboard:[/bold magenta]")
+        log.write("    Press Ctrl+V or click [Paste] to render a copied image")
+        log.write("")
+        log.write("[dim][Backspace]=up dir  [G]=jump to path  [R]=refresh  [P]=play  [Ctrl+V]=paste[/dim]")
+        log.write("")
         log.write(
             "[dim]A new terminal window opens with playback: "
             "Space=pause  Q=quit  +/-=speed[/dim]"
@@ -857,6 +954,31 @@ class ASCIITuiApp(App):
     def _update_preview(self):
         s = self._settings()
         if self.selected_file:
+            if self.selected_kind == "image" or is_image_file(self.selected_file) or is_image_url(str(self.selected_file)):
+                parts = [os.path.basename(self.selected_file)]
+                parts.append(f"-w {s['width']}")
+                parts.append(f"-p {s['preset']}")
+                parts.append(f"--animate {s['animate']}")
+                if s["color"]:
+                    parts.append("-c")
+                if s["dither"]:
+                    parts.append("--dither")
+                if s["invert"]:
+                    parts.append("--invert")
+                if s.get("crop"):
+                    parts.append("--crop")
+                    parts.append(f"--aspect {s.get('aspect', 0.55)}")
+                if s["loop"]:
+                    parts.append("--loop")
+                if s["export"] != "none":
+                    parts.append(f"--export {s['export']}")
+                    out = (s.get("output") or "").strip()
+                    if out:
+                        parts.append(f"-o {out}")
+                if s.get("cache"):
+                    parts.append("--cache")
+                self.query_one(CommandPreview).show("ascii-player " + " ".join(parts))
+                return
             parts = [os.path.basename(self.selected_file)]
             parts.append(f"-w {s['width']}")
             if s["preset"]:
@@ -885,6 +1007,79 @@ class ASCIITuiApp(App):
         path = self.selected_file
         if not path or not os.path.isfile(path):
             panel.show_message("Select a video to see an ASCII preview here.")
+            return
+        if is_image_file(path) or is_image_url(path):
+            # Cancel any in-flight preview animation.
+            timer = getattr(self, "_preview_timer", None)
+            if timer is not None:
+                try:
+                    timer.stop()
+                except Exception:
+                    pass
+                self._preview_timer = None
+
+            s = self._settings()
+            try:
+                width = int(s["width"]) if str(s["width"]).isdigit() else 80
+            except ValueError:
+                width = 80
+            if width <= 0:
+                width = 60
+            width = min(width, 60)
+            preset = s["preset"] or "classic"
+            invert = bool(s.get("invert", False)) if isinstance(s, dict) else False
+            dither = bool(s.get("dither", False)) if isinstance(s, dict) else False
+            crop = bool(s.get("crop", False)) if isinstance(s, dict) else False
+            try:
+                aspect = float(s.get("aspect", 0.55)) if isinstance(s, dict) else 0.55
+            except (TypeError, ValueError):
+                aspect = 0.55
+            animation = s.get("animate", "none") if isinstance(s, dict) else "none"
+
+            try:
+                grid = image_to_grid(load_image(path), width, preset, invert=invert, dither=dither, crop=crop, aspect=aspect)
+            except Exception:
+                panel.show_message("Preview failed.")
+                return
+
+            if animation == "none":
+                panel.show_frame(grid_lines(grid, color=False))
+                return
+
+            animator = RainAnimator(grid) if animation == "rain" else None
+            start = time.time()
+            duration = 1.0
+
+            def tick():
+                elapsed = time.time() - start
+                progress = min(1.0, elapsed / duration)
+                if animation == "decode":
+                    lines = decode_lines(grid, progress, color=False)
+                elif animation == "type":
+                    lines = type_lines(grid, progress, color=False)
+                else:
+                    lines = animator.lines(progress, 0.06, color=False)
+                try:
+                    panel.show_frame(lines)
+                except Exception:
+                    return
+                if progress >= 1.0:
+                    try:
+                        panel.show_frame(grid_lines(grid, color=False))
+                    except Exception:
+                        pass
+                    t = getattr(self, "_preview_timer", None)
+                    if t is not None:
+                        try:
+                            t.stop()
+                        except Exception:
+                            pass
+                    self._preview_timer = None
+
+            try:
+                self._preview_timer = self.set_interval(0.06, tick)
+            except Exception:
+                panel.show_frame(grid_lines(grid, color=False))
             return
         if not _CV2_OK:
             panel.show_message("Preview needs OpenCV (opencv-python) to render frames inline.")
@@ -921,7 +1116,7 @@ class ASCIITuiApp(App):
 
     def _update_key_hints(self):
         self.query_one("#key-hints").update(
-            "↑↓ nav  Enter open  P play  G path  W webcam  R refresh"
+            "↑↓ nav  Enter open  P play  G path  W webcam  R refresh  Ctrl+V paste"
         )
 
     # ---- selections ----
@@ -931,6 +1126,18 @@ class ASCIITuiApp(App):
             self._lyrics_auto = path
             self._log().write(f"[cyan]Lyrics: {os.path.basename(path)}[/cyan]")
             self._update_preview()
+            return
+        if kind == "image":
+            self.selected_file = path
+            self.selected_kind = "image"
+            self._lyrics_auto = None
+            name = self._selected_name()
+            self.query_one("#selected-file").update(f"> {name}")
+            self._log().write(
+                f"[magenta]Image ready: {name}[/magenta]  --  Press [Play File] or P"
+            )
+            self._update_preview()
+            self._refresh_inline_preview()
             return
         self.selected_file = path
         self.selected_kind = kind or "video"
@@ -950,6 +1157,31 @@ class ASCIITuiApp(App):
 
     def _build_player_args(self, video_path, export_output=None):
         s = self._settings()
+        if self.selected_kind == "image" or is_image_file(video_path) or is_image_url(str(video_path)):
+            args = [PYTHON, "-m", "ascii_player", video_path]
+            args.extend(["-w", str(s["width"])])
+            if s["preset"]:
+                args.extend(["-p", str(s["preset"])])
+            if s["color"]:
+                args.append("-c")
+            args.extend(["--animate", str(s["animate"])])
+            if s["dither"]:
+                args.append("--dither")
+            if s["invert"]:
+                args.append("--invert")
+            if s.get("crop"):
+                args.append("--crop")
+                args.extend(["--aspect", str(s.get("aspect", 0.55))])
+            if s["loop"]:
+                args.append("--loop")
+            if s["export"] != "none":
+                args.extend(["--export", str(s["export"])])
+                out = export_output or (s.get("output") or "").strip()
+                if out:
+                    args.extend(["-o", out])
+            if s.get("cache"):
+                args.append("--cache")
+            return args
         args = [PYTHON, "-m", "ascii_player", video_path]
         args.extend(["-w", str(s["width"])])
         if s["preset"]:
@@ -989,6 +1221,12 @@ class ASCIITuiApp(App):
         return args
 
     def _record_recent(self, path):
+        if is_url(path):
+            recent = _load_recent()
+            recent = [p for p in recent if p != path]
+            recent.insert(0, path)
+            _save_recent(recent)
+            return
         recent = _load_recent()
         recent = [p for p in recent if os.path.abspath(p) != os.path.abspath(path)]
         recent.insert(0, os.path.abspath(path))
@@ -1013,6 +1251,12 @@ class ASCIITuiApp(App):
             "output": s["output"] or "",
             "lyrics": s["lyrics"],
             "cache": s["cache"],
+            "animate": s["animate"],
+            "dither": s["dither"],
+            "invert": s["invert"],
+            "loop": s["loop"],
+            "crop": s["crop"],
+            "aspect": s["aspect"],
         })
         save_config(cfg)
 
@@ -1094,19 +1338,37 @@ class ASCIITuiApp(App):
         if os.path.isfile(url):
             # Local path typed directly.
             ext = os.path.splitext(url)[1].lower()
-            self.select_file(url, "lyrics" if ext.lower() in LYRICS_EXT else "video")
+            if ext in LYRICS_EXT:
+                kind = "lyrics"
+            elif ext in IMAGE_EXT:
+                kind = "image"
+            else:
+                kind = "video"
+            self.select_file(url, kind)
             args = self._build_player_args(url)
             self._launch(
                 args,
                 f"[green]Playing:[/green] {url}",
                 "[red]Failed to open terminal window[/red]",
-                on_recent=url if ext.lower() in VIDEO_EXT else None,
+                on_recent=url if (ext in VIDEO_EXT or ext in IMAGE_EXT) else None,
             )
             self.query_one("#url-input").value = ""
             return
 
         if not is_url(url):
             self._log().write(f"[red]Not a valid URL or path: {url}[/red]")
+            return
+
+        if is_image_url(url):
+            self.select_file(url, "image")
+            args = self._build_player_args(url)
+            self._launch(
+                args,
+                f"[green]Playing:[/green] {url}",
+                "[red]Failed to open terminal window[/red]",
+                on_recent=url,
+            )
+            self.query_one("#url-input").value = ""
             return
 
         args = self._build_player_args(url)
@@ -1135,6 +1397,36 @@ class ASCIITuiApp(App):
             on_recent=self.selected_file,
         )
 
+    def action_paste_clipboard(self):
+        self.paste_clipboard()
+
+    def paste_clipboard(self):
+        image = clipboard_image()
+        if image is not None:
+            try:
+                path = save_clipboard_image(image)
+            except Exception:
+                self._log().write("[red]Could not save clipboard image[/red]")
+                return
+            self.query_one(FileBrowser).refresh_files()
+            self.select_file(path, "image")
+            self._log().write(
+                f"[green]Pasted image:[/green] {os.path.basename(path)}"
+            )
+            self.query_one("#status-text").update("Clipboard image ready")
+            return
+        text = clipboard_text()
+        if text:
+            text = text.strip()
+            inp = self.query_one("#url-input")
+            inp.value = text
+            inp.focus()
+            self.query_one("#status-text").update("Clipboard text pasted")
+            return
+        self._log().write("[yellow]Clipboard is empty or unavailable[/yellow]")
+        self.query_one("#status-text").update("Clipboard empty")
+
+
     def run_webcam(self):
         args = self._build_webcam_args()
         self._launch(
@@ -1142,6 +1434,45 @@ class ASCIITuiApp(App):
             "[green]Webcam started in new window[/green]",
             "[red]Failed to open webcam[/red]",
         )
+
+    @on(Button.Pressed, "#btn-paste")
+    def on_paste_pressed(self, event):
+        self.paste_clipboard()
+
+    @on(Button.Pressed, "#btn-browse")
+    def on_browse_pressed(self, event):
+        browser = self.query_one(FileBrowser)
+        self.push_screen(FilePickerScreen(browser.current_dir))
+
+
+class FilePickerScreen(Screen):
+    """Modal file picker built on DirectoryTree."""
+
+    def __init__(self, start_dir=".", **kwargs):
+        super().__init__(**kwargs)
+        self.start_dir = start_dir
+
+    def compose(self):
+        with Vertical(id="picker-container"):
+            yield Static("Pick a file (Enter), Esc to cancel", id="picker-title")
+            yield DirectoryTree(self.start_dir, id="picker-tree")
+
+    def on_directory_tree_file_selected(self, event):
+        path = str(event.path)
+        if is_image_file(path) or is_image_url(path):
+            kind = "image"
+        elif path.lower().endswith(tuple(LYRICS_EXT)):
+            kind = "lyrics"
+        else:
+            kind = "video"
+        self.app.select_file(path, kind)
+        self.app.pop_screen()
+
+    def on_key(self, event):
+        if event.key == "escape":
+            self.app.pop_screen()
+            event.stop()
+
 
 
 def run_tui():

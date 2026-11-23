@@ -164,3 +164,70 @@ class TestHelpers:
     def test_strip_ansi(self):
         assert _strip_ansi("\x1b[1;32mgreen\x1b[0m") == "green"
         assert _strip_ansi("plain") == "plain"
+
+
+class TestImageSelection:
+    def test_select_image_sets_kind(self, app):
+        async def check(app, pilot):
+            path = "C:\\images\\shot.png"
+            app.select_file(path, "image")
+            assert app.selected_file == path
+            assert app.selected_kind == "image"
+            assert app._lyrics_auto is None
+        _scenario(app, check)
+
+    def test_build_player_args_image(self, app):
+        async def check(app, pilot):
+            image = os.path.join(app.query_one("FileBrowser").current_dir, "pic.png")
+            app.select_file(image, "image")
+            app.query_one("#select-animate").value = "rain"
+            app.query_one("#select-dither").value = True
+            app.query_one("#select-invert").value = True
+            app.query_one("#select-loop").value = True
+            args = app._build_player_args(image)
+            joined = " ".join(args)
+            assert image in args
+            assert "--animate rain" in joined
+            assert "--dither" in joined
+            assert "--invert" in joined
+            assert "--loop" in joined
+            assert "--no-audio" not in joined
+        _scenario(app, check)
+
+    def test_command_preview_image(self, app):
+        async def check(app, pilot):
+            app.select_file("C:\\images\\shot.png", "image")
+            app._update_preview()
+            preview = app.query_one("#cmd-preview", Static)
+            text = str(preview.content)
+            assert "ascii-player " in text
+            assert "--animate" in text
+        _scenario(app, check)
+
+
+class TestClipboard:
+    def test_paste_clipboard_image(self, app, monkeypatch, tmp_path):
+        import ascii_player.tui as tui_mod
+        from PIL import Image
+
+        img_path = tmp_path / "cb.png"
+        Image.new("RGB", (4, 4), (1, 2, 3)).save(img_path)
+
+        monkeypatch.setattr(tui_mod, "clipboard_image", lambda: Image.open(img_path).convert("RGB"))
+        monkeypatch.setattr(tui_mod, "save_clipboard_image", lambda image, directory=None: str(img_path))
+        async def check(app, pilot):
+            app.paste_clipboard()
+            await pilot.pause()
+            assert app.selected_kind == "image"
+            assert app.selected_file == str(img_path)
+        _scenario(app, check)
+
+    def test_paste_clipboard_text(self, app, monkeypatch):
+        import ascii_player.tui as tui_mod
+        monkeypatch.setattr(tui_mod, "clipboard_image", lambda: None)
+        monkeypatch.setattr(tui_mod, "clipboard_text", lambda: "https://example.com/x.png")
+        async def check(app, pilot):
+            app.paste_clipboard()
+            await pilot.pause()
+            assert app.query_one("#url-input").value == "https://example.com/x.png"
+        _scenario(app, check)

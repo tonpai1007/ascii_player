@@ -12,6 +12,67 @@ from .webcam import run_webcam
 from .youtube import cleanup_temp_file, download_youtube_video, is_youtube_url
 
 
+def _print_banner():
+    """Print the application banner."""
+    print(f"\033[1;35m{'=' * 40}\033[0m")
+    print(f"\033[1;35m  ASCII VIDEO PLAYER v{__version__}\033[0m")
+    print("\033[1;35m  Powered by OpenCV + Loguru\033[0m")
+    print(f"\033[1;35m{'=' * 40}\033[0m\n")
+
+
+def _run_image(source, args):
+    from .image_player import play_image, export_still, export_image
+    from .images import is_image_url
+
+    if args.export in ("txt", "ans", "html"):
+        out = args.output or f"output.{args.export}"
+        path = export_still(
+            source,
+            out,
+            width=args.width,
+            preset=args.preset or "classic",
+            color=args.color,
+            invert=args.invert,
+            dither=args.dither,
+            crop=args.crop,
+            aspect=args.aspect,
+        )
+        print(f"Exported {path}")
+        return
+
+    if args.export in ("gif", "mp4"):
+        out = args.output or f"output.{args.export}"
+        path = export_image(
+            source,
+            out,
+            width=args.width,
+            preset=args.preset or "classic",
+            invert=args.invert,
+            dither=args.dither,
+            crop=args.crop,
+            aspect=args.aspect,
+            export_format=args.export,
+        )
+        print(f"Exported {path}")
+        return
+
+    play_image(
+        source,
+        width=args.width,
+        preset=args.preset or "classic",
+        color=args.color,
+        invert=args.invert,
+        dither=args.dither,
+        animation=args.animate,
+        loop=args.loop,
+        hold=args.hold,
+        controls=not args.no_controls,
+        cache=args.cache,
+        crop=args.crop,
+        aspect=args.aspect,
+    )
+
+
 def main():
     """Main entry point."""
     args = parse_args()
@@ -33,8 +94,29 @@ def main():
         )
         return
 
+    if args.clipboard:
+        from .images import clipboard_image, save_clipboard_image
+
+        image = clipboard_image()
+        if image is None:
+            print("Error: no image found in the clipboard")
+            raise SystemExit(1)
+        path = save_clipboard_image(image)
+        _run_image(path, args)
+        return
+
     if not args.video:
-        print("Error: video argument is required (or use --tui, --webcam)")
+        print("Error: video argument is required (or use --tui, --webcam, --clipboard)")
+        raise SystemExit(1)
+
+    from .images import is_image_file, is_image_url
+
+    if is_image_file(args.video) or is_image_url(args.video):
+        _run_image(args.video, args)
+        return
+
+    if args.export and args.export in ("txt", "ans", "html"):
+        print("Error: text exports are only supported for images")
         raise SystemExit(1)
 
     config = load_config()
@@ -70,14 +152,6 @@ def main():
         )
     finally:
         cleanup_temp_file(temp_file)
-
-
-def _print_banner():
-    """Print the application banner."""
-    print(f"\033[1;35m{'=' * 40}\033[0m")
-    print(f"\033[1;35m  ASCII VIDEO PLAYER v{__version__}\033[0m")
-    print("\033[1;35m  Powered by OpenCV + Loguru\033[0m")
-    print(f"\033[1;35m{'=' * 40}\033[0m\n")
 
 
 if __name__ == "__main__":

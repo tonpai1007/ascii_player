@@ -65,10 +65,10 @@ class ASCIIExporter:
         self.frames.append((frame_num, img))
 
     def _ascii_to_image(self, ascii_frame):
-        """Convert ASCII frame to PIL Image.
+        """Convert ASCII frame to PIL Image (supports ANSI truecolor).
 
         Args:
-            ascii_frame: List of strings
+            ascii_frame: List of strings (may contain ANSI color codes)
 
         Returns:
             PIL Image
@@ -76,8 +76,9 @@ class ASCIIExporter:
         char_width = 8
         char_height = 14
 
+        # Strip ANSI for sizing, but keep color info for rendering.
         cleaned = [_ANSI_RE.sub("", row) for row in ascii_frame]
-        width_px = len(cleaned[0]) * char_width if cleaned else 0
+        width_px = max((len(row) for row in cleaned), default=0) * char_width
         height_px = len(cleaned) * char_height
 
         img = Image.new("RGB", (width_px, height_px), (0, 0, 0))
@@ -91,16 +92,39 @@ class ASCIIExporter:
             except OSError:
                 font = ImageFont.load_default()
 
-        for y, row in enumerate(cleaned):
-            for x, char in enumerate(row):
-                brightness = ord(char) / 127 if char.strip() else 0
-                color = int(brightness * 255)
-                draw.text(
-                    (x * char_width, y * char_height),
-                    char,
-                    fill=(color, color, color),
-                    font=font
-                )
+        color_re = re.compile(r"\x1b\[38;2;(\d+);(\d+);(\d+)m|\x1b\[0m")
+
+        for y, row in enumerate(ascii_frame):
+            x = 0
+            current_color = (200, 200, 200)
+            for match in color_re.finditer(row):
+                # Draw text before this escape.
+                pass
+            # Walk char by char, tracking color.
+            i = 0
+            n = len(row)
+            while i < n:
+                if row.startswith("\x1b[", i):
+                    m = color_re.match(row, i)
+                    if m:
+                        if m.group(1) is not None:
+                            current_color = (
+                                int(m.group(1)), int(m.group(2)), int(m.group(3))
+                            )
+                        else:
+                            current_color = (200, 200, 200)
+                        i = m.end()
+                        continue
+                char = row[i]
+                if char.strip():
+                    draw.text(
+                        (x * char_width, y * char_height),
+                        char,
+                        fill=current_color,
+                        font=font,
+                    )
+                x += 1
+                i += 1
 
         return img
 

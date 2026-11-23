@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+ascii_player.log
+ascii_player.yaml
+ascii_player_recent.txt
+.pytest_cache/
+.ruff_cache/

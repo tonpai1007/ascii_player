@@ -52,7 +52,7 @@ Controls: Space=pause, Q=quit, +/-=speed, Arrows=seek
     )
     parser.add_argument(
         "-w", "--width",
-        type=lambda x: max(1, int(x)),
+        type=lambda x: max(0, int(x)),
         default=DEFAULT_WIDTH,
         help=f"ASCII output width in characters (default: {DEFAULT_WIDTH})"
     )
@@ -92,7 +92,7 @@ Controls: Space=pause, Q=quit, +/-=speed, Arrows=seek
     )
     parser.add_argument(
         "--export",
-        choices=["gif", "mp4"],
+        choices=["gif", "mp4", "txt", "ans", "html"],
         default=None,
         help="Export ASCII video to file"
     )
@@ -139,6 +139,51 @@ Controls: Space=pause, Q=quit, +/-=speed, Arrows=seek
         "-V", "--version",
         action="version",
         version=f"%(prog)s {__version__}"
+    )
+
+    # Image / clipboard options (still-image mode).
+    parser.add_argument(
+        "--animate",
+        choices=["none", "decode", "type", "rain"],
+        default="decode",
+        help="Reveal animation for still images (default: decode)",
+    )
+    parser.add_argument(
+        "--dither",
+        action="store_true",
+        help="Enable ordered dithering for still images",
+    )
+    parser.add_argument(
+        "--invert",
+        action="store_true",
+        help="Invert brightness for still images",
+    )
+    parser.add_argument(
+        "--crop",
+        action="store_true",
+        help="Center-crop the image to the output aspect ratio",
+    )
+    parser.add_argument(
+        "--aspect",
+        type=float,
+        default=0.55,
+        help="Character aspect ratio factor (default: 0.55)",
+    )
+    parser.add_argument(
+        "--loop",
+        action="store_true",
+        help="Loop animated GIFs",
+    )
+    parser.add_argument(
+        "--hold",
+        type=float,
+        default=0.0,
+        help="Seconds to hold the final image (0 = wait for Q)",
+    )
+    parser.add_argument(
+        "--clipboard",
+        action="store_true",
+        help="Render an image from the clipboard",
     )
 
     return parser.parse_args()
