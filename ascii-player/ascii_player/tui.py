@@ -12,7 +12,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical, Horizontal, Vertical
 from textual.events import Key
-from textual.screen import Screen
+from textual.screen import Screen, ModalScreen
 from textual.widgets import (
     DirectoryTree,
     Button,
@@ -150,6 +150,42 @@ def _auto_lyrics(video_path):
         if os.path.exists(candidate):
             return candidate
     return None
+
+
+class PlaylistPanel(Static):
+    """Show and manage the playback queue."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._seq = 0
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("PLAYLIST", id="playlist-title")
+            yield ListView(id="playlist-list", classes="playlist-list")
+            with Horizontal(classes="playlist-buttons"):
+                yield Button("Clear", id="btn-clear-pl")
+                yield Button("Prev", id="btn-prev-pl")
+                yield Button("Next", id="btn-next-pl")
+
+    def refresh_playlist(self, playlist, index):
+        lv = self.query_one("#playlist-list", ListView)
+        lv.clear()
+        for i, item in enumerate(playlist):
+            name = os.path.basename(item["path"])
+            prefix = "► " if i == index else "  "
+            self._seq += 1
+            lv.append(ListItem(Static(f"{prefix}{name}"), id=f"pl-{self._seq}"))
+        if not playlist:
+            lv.append(ListItem(Static("  (empty)"), id=f"pl-{self._seq}"))
+
+    def on_button_pressed(self, event):
+        if event.button.id == "btn-clear-pl":
+            self.app.clear_playlist()
+        elif event.button.id == "btn-prev-pl":
+            self.app.play_prev()
+        elif event.button.id == "btn-next-pl":
+            self.app.play_next()
 
 
 class FileBrowser(Static):
@@ -304,6 +340,15 @@ class FileBrowser(Static):
             # Direct the arrow keys toward the file list so browsing works from anywhere.
             if self.app.focused is not self._list_view():
                 self._list_view().focus()
+        elif event.key == "space":
+            # Toggle selection for playlist
+            item = self._cursor_item()
+            if item:
+                path = getattr(item, "data_path", "")
+                kind = getattr(item, "data_kind", "dir")
+                if path and kind in ("video", "image"):
+                    self.app.toggle_playlist_item(path, kind)
+                    event.stop()
         elif event.key == "backspace":
             if not (self.app.focused and self.app.focused.id in ("dir-input",)):
                 self.current_dir = os.path.dirname(self.current_dir)
@@ -850,6 +895,55 @@ class ASCIITuiApp(App):
         height: 1fr;
         border: tall $primary;
     }
+
+    PlaylistPanel {
+        border: tall $primary;
+        padding: 1;
+    }
+
+    #playlist-list {
+        height: 8;
+        border: round $primary-darken-1;
+    }
+
+    .playlist-buttons {
+        height: 3;
+    }
+
+    .playlist-buttons Button {
+        margin: 0 1;
+    }
+
+    #help-dialog {
+        width: 50;
+        height: auto;
+        border: round $accent;
+        background: $surface;
+        padding: 1;
+        align: center middle;
+    }
+
+    #help-title {
+        text-style: bold;
+        color: $accent;
+        text-align: center;
+    }
+
+    #help-body {
+        text-align: left;
+        padding: 0 2;
+    }
+
+    #picker-container {
+        width: 80;
+        height: 20;
+        border: round $accent;
+        background: $surface;
+    }
+
+    #picker-tree {
+        height: 1fr;
+    }
     """
 
     BINDINGS = [
@@ -860,6 +954,9 @@ class ASCIITuiApp(App):
         Binding("g", "goto_path", "Go to path"),
         Binding("ctrl+l", "focus_log", "Log"),
         Binding("ctrl+v", "paste_clipboard", "Paste"),
+        Binding("f", "toggle_fullscreen", "Fullscreen"),
+        Binding("ctrl+right", "play_next", "Next"),
+        Binding("ctrl+left", "play_prev", "Prev"),
     ]
 
     def __init__(self):
@@ -867,6 +964,10 @@ class ASCIITuiApp(App):
         self.selected_file = None
         self.selected_kind = None
         self._lyrics_auto = None
+        self._webcam_preview = None
+        self._webcam_task = None
+        self._playlist = []
+        self._playlist_index = 0
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -874,6 +975,7 @@ class ASCIITuiApp(App):
             yield FileBrowser()
             yield Static("", id="selected-file")
             yield RecentList()
+            yield PlaylistPanel()
 
         with Container(id="main"):
             with Vertical():
@@ -1116,8 +1218,56 @@ class ASCIITuiApp(App):
 
     def _update_key_hints(self):
         self.query_one("#key-hints").update(
-            "↑↓ nav  Enter open  P play  G path  W webcam  R refresh  Ctrl+V paste"
+            "Up/Down nav  Enter open  P play  G path  W webcam  R refresh  Ctrl+V paste  F fullscreen  Ctrl+P commands  Space add  Ctrl+Left/Right next/prev"
         )
+
+    def _start_webcam_preview(self):
+        """Start live webcam preview in the inline preview pane."""
+        if not _CV2_OK:
+            self.query_one(InlinePreview).show_message("Webcam preview needs OpenCV.")
+            return
+        if self._webcam_task is not None:
+            return
+        self._webcam_preview = cv2.VideoCapture(0)
+        if not self._webcam_preview.isOpened():
+            self.query_one(InlinePreview).show_message("Could not open webcam.")
+            self._webcam_preview = None
+            return
+        self._webcam_task = self.set_interval(0.1, self._tick_webcam_preview)
+
+    def _tick_webcam_preview(self):
+        """Capture and render a webcam frame to the preview."""
+        if self._webcam_preview is None or not self._webcam_preview.isOpened():
+            return
+        s = self._settings()
+        try:
+            width = int(s["width"]) if str(s["width"]).isdigit() else 80
+        except ValueError:
+            width = 80
+        width = min(width, 60)
+        ret, frame = self._webcam_preview.read()
+        if not ret or frame is None:
+            return
+        if _CORE_OK and frame_to_ascii:
+            lines = frame_to_ascii(frame, width=width, color=s["color"], preset=s["preset"] or "classic")
+            self.query_one(InlinePreview).show_frame([_strip_ansi(line) for line in lines])
+        else:
+            self.query_one(InlinePreview).show_message("Preview converter unavailable.")
+
+    def _stop_webcam_preview(self):
+        """Stop the webcam preview and release the camera."""
+        if self._webcam_task is not None:
+            try:
+                self._webcam_task.stop()
+            except Exception:
+                pass
+            self._webcam_task = None
+        if self._webcam_preview is not None:
+            try:
+                self._webcam_preview.release()
+            except Exception:
+                pass
+            self._webcam_preview = None
 
     # ---- selections ----
 
@@ -1260,6 +1410,42 @@ class ASCIITuiApp(App):
         })
         save_config(cfg)
 
+    def toggle_playlist_item(self, path, kind):
+        """Add or remove a file from the playlist."""
+        entry = {"path": path, "kind": kind}
+        for i, e in enumerate(self._playlist):
+            if e["path"] == path:
+                self._playlist.pop(i)
+                self._log().write(f"[dim]Removed from playlist: {os.path.basename(path)}[/dim]")
+                self.query_one(PlaylistPanel).refresh_playlist(self._playlist, self._playlist_index)
+                return
+        self._playlist.append(entry)
+        self._log().write(f"[green]Added to playlist:[/green] {os.path.basename(path)} ({len(self._playlist)} items)")
+        self.query_one(PlaylistPanel).refresh_playlist(self._playlist, self._playlist_index)
+
+    def clear_playlist(self):
+        self._playlist.clear()
+        self._playlist_index = 0
+        self._log().write("[dim]Playlist cleared[/dim]")
+        self.query_one(PlaylistPanel).refresh_playlist(self._playlist, self._playlist_index)
+
+    def play_next(self):
+        if not self._playlist:
+            return
+        self._playlist_index = (self._playlist_index + 1) % len(self._playlist)
+        item = self._playlist[self._playlist_index]
+        self.select_file(item["path"], item["kind"])
+        self.query_one(PlaylistPanel).refresh_playlist(self._playlist, self._playlist_index)
+        self.play_file()
+
+    def play_prev(self):
+        if not self._playlist:
+            return
+        self._playlist_index = (self._playlist_index - 1) % len(self._playlist)
+        item = self._playlist[self._playlist_index]
+        self.select_file(item["path"], item["kind"])
+        self.play_file()
+
     def _launch(self, args, message_ok, message_err, on_recent=None):
         self.query_one("#status-text").update("Launching...")
         if on_recent:
@@ -1400,6 +1586,27 @@ class ASCIITuiApp(App):
     def action_paste_clipboard(self):
         self.paste_clipboard()
 
+    def action_toggle_fullscreen(self):
+        """Toggle sidebar visibility for full-screen art mode."""
+        sidebar = self.query_one("#sidebar")
+        main = self.query_one("#main")
+        if sidebar.styles.display == "none":
+            sidebar.styles.display = "block"
+            main.styles.width = "60%"
+        else:
+            sidebar.styles.display = "none"
+            main.styles.width = "100%"
+
+    def action_command_palette(self):
+        """Show help overlay."""
+        self.push_screen(HelpScreen())
+
+    def action_play_next(self):
+        self.play_next()
+
+    def action_play_prev(self):
+        self.play_prev()
+
     def paste_clipboard(self):
         image = clipboard_image()
         if image is not None:
@@ -1428,12 +1635,17 @@ class ASCIITuiApp(App):
 
 
     def run_webcam(self):
+        # Start inline preview first
+        self._start_webcam_preview()
+        self._log().write("[dim]Webcam preview active in pane; press Play Webcam again to launch full player[/dim]")
         args = self._build_webcam_args()
         self._launch(
             args,
             "[green]Webcam started in new window[/green]",
             "[red]Failed to open webcam[/red]",
         )
+        # Stop preview after launching
+        self._stop_webcam_preview()
 
     @on(Button.Pressed, "#btn-paste")
     def on_paste_pressed(self, event):
@@ -1470,6 +1682,37 @@ class FilePickerScreen(Screen):
 
     def on_key(self, event):
         if event.key == "escape":
+            self.app.pop_screen()
+            event.stop()
+
+
+
+
+class HelpScreen(ModalScreen):
+    """Help overlay with keybindings."""
+
+    def compose(self):
+        with Vertical(id="help-dialog"):
+            yield Static("KEYBINDINGS", id="help-title")
+            yield Static(
+                "Up/Down     Navigate file list\n"
+                "Enter       Open directory / select file\n"
+                "Space       Add/remove from playlist\n"
+                "P           Play selected file\n"
+                "W           Start webcam (preview + launch)\n"
+                "G           Go to path\n"
+                "R           Refresh file list\n"
+                "Ctrl+V      Paste from clipboard\n"
+                "F           Toggle fullscreen (hide sidebar)\n"
+                "Ctrl+Left/Right  Playlist prev/next\n"
+                "Ctrl+P      Show this help\n"
+                "Esc         Close dialog / cancel\n"
+                "Q           Quit",
+                id="help-body",
+            )
+
+    def on_key(self, event):
+        if event.key in ("escape", "ctrl+p"):
             self.app.pop_screen()
             event.stop()
 
