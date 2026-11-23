@@ -45,6 +45,9 @@ from .images import (
     type_lines,
 )
 from .settings import load_config, save_config
+from .themes import load_theme, cycle_theme, save_theme, register_themes, apply_theme
+from .audio import extract_audio
+from .visualizer import AudioVisualizer
 
 PYTHON = sys.executable or "python"
 
@@ -324,6 +327,42 @@ class FileBrowser(Static):
     def _on_selected(self, event: ListView.Selected):
         event.stop()
         self._activate()
+
+    def on_click(self, event):
+        """Handle click on file list items."""
+        # Find which item was clicked
+        try:
+            widget = self.screen.get_widget_at(event.x, event.y)[0]
+            if widget is not None and hasattr(widget, "data_path"):
+                path = getattr(widget, "data_path", "")
+                kind = getattr(widget, "data_kind", "dir")
+                if path and kind in ("video", "image", "lyrics"):
+                    # Set the list view index to this item
+                    lv = self._list_view()
+                    for i, item in enumerate(self.entries):
+                        if getattr(lv.children[i] if i < len(lv.children) else None, "data_path", "") == path:
+                            lv.index = i
+                            break
+                    self._activate()
+                elif kind == "dir" and path:
+                    self.current_dir = path
+                    self.refresh_files()
+        except Exception:
+            pass
+
+    def on_mouse_scroll_down(self, event):
+        """Scroll file list down."""
+        lv = self._list_view()
+        if lv:
+            lv.action_scroll_down()
+            event.stop()
+
+    def on_mouse_scroll_up(self, event):
+        """Scroll file list up."""
+        lv = self._list_view()
+        if lv:
+            lv.action_scroll_up()
+            event.stop()
 
     def on_button_pressed(self, event):
         if event.button.id == "btn-up":
@@ -968,6 +1007,9 @@ class ASCIITuiApp(App):
         self._webcam_task = None
         self._playlist = []
         self._playlist_index = 0
+        self._current_theme = load_theme()
+        self._visualizer = None
+        self._visualizer_task = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -1041,6 +1083,9 @@ class ASCIITuiApp(App):
         if cfg:
             log.write("")
             log.write("[dim]Loaded persisted settings from ascii_player.yaml.[/dim]")
+        # Register and apply theme
+        register_themes(self)
+        apply_theme(self, self._current_theme)
 
     # ---- state helpers ----
 
@@ -1601,6 +1646,58 @@ class ASCIITuiApp(App):
         """Show help overlay."""
         self.push_screen(HelpScreen())
 
+    def action_toggle_theme(self):
+        """Cycle to next theme."""
+        self._current_theme = cycle_theme(self._current_theme)
+        save_theme(self._current_theme)
+        apply_theme(self, self._current_theme)
+        theme_names = {"dark": "Dark", "light": "Light", "high_contrast": "High Contrast", "retro": "Retro", "steins_gate": "Steins Gate"}
+        theme_name = theme_names.get(self._current_theme, self._current_theme)
+        self._log().write(f"[cyan]Theme: {theme_name}[/cyan]")
+
+    def action_toggle_visualizer(self):
+        """Toggle audio visualizer on/off."""
+        if self._visualizer is not None:
+            self._stop_visualizer()
+            self._log().write("[dim]Visualizer: off[/dim]")
+        else:
+            self._start_visualizer()
+            self._log().write("[cyan]Visualizer: on (bars/wave in preview)[/cyan]")
+
+    def _start_visualizer(self):
+        """Start audio visualizer."""
+        if not self.selected_file or not _CV2_OK:
+            # Still can show visualizer for images
+            pass
+        audio_path = extract_audio(self.selected_file) if self.selected_file else None
+        if audio_path:
+            self._visualizer = AudioVisualizer(audio_path, fps=30.0, mode="bars")
+        else:
+            self._visualizer = AudioVisualizer(None, fps=30.0, mode="bars")
+
+        def tick():
+            if self._visualizer is None:
+                return
+            panel = self.query_one(InlinePreview)
+            if self.selected_file:
+                # Show visualizer instead of static preview
+                pass
+            viz_lines = self._visualizer.render(0.0, 40)
+            if viz_lines:
+                panel.show_frame(viz_lines)
+
+        self._visualizer_task = self.set_interval(0.1, tick)
+
+    def _stop_visualizer(self):
+        """Stop audio visualizer."""
+        if self._visualizer_task is not None:
+            try:
+                self._visualizer_task.stop()
+            except Exception:
+                pass
+            self._visualizer_task = None
+        self._visualizer = None
+
     def action_play_next(self):
         self.play_next()
 
@@ -1650,6 +1747,19 @@ class ASCIITuiApp(App):
     @on(Button.Pressed, "#btn-paste")
     def on_paste_pressed(self, event):
         self.paste_clipboard()
+
+    def on_click(self, event):
+        """Handle clicks on buttons and settings."""
+        # Check if click is on the paste button
+        try:
+            widget = self.screen.get_widget_at(event.x, event.y)[0]
+            if widget and widget.id == "btn-paste":
+                self.paste_clipboard()
+            elif widget and widget.id == "btn-browse":
+                browser = self.query_one(FileBrowser)
+                self.push_screen(FilePickerScreen(browser.current_dir))
+        except Exception:
+            pass
 
     @on(Button.Pressed, "#btn-browse")
     def on_browse_pressed(self, event):
