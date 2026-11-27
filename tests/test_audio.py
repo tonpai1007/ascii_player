@@ -4,7 +4,13 @@ import os
 import subprocess
 from unittest.mock import MagicMock, patch
 
-from ascii_player.audio import cleanup_audio, extract_audio, play_audio, stop_audio
+from ascii_player.audio import (
+    cleanup_audio,
+    extract_audio,
+    play_audio,
+    restart_audio,
+    stop_audio,
+)
 
 
 class TestExtractAudio:
@@ -69,6 +75,45 @@ class TestPlayAudio:
         with patch("ascii_player.audio.subprocess.Popen", return_value=mock_proc):
             result = play_audio(audio)
             assert result is mock_proc
+
+    def test_start_time_is_passed_to_ffplay(self, tmp_dir):
+        audio = str(tmp_dir / "audio.wav")
+        with open(audio, "wb") as f:
+            f.write(b"fake")
+        with patch("ascii_player.audio.subprocess.Popen") as popen:
+            play_audio(audio, volume=80, start_time=12.3456)
+
+        cmd = popen.call_args.args[0]
+        assert cmd[cmd.index("-volume") + 1] == "80"
+        assert cmd[cmd.index("-ss") + 1] == "12.346"
+        assert cmd.index("-ss") < cmd.index(audio)
+
+    def test_default_start_time_is_zero(self, tmp_dir):
+        audio = str(tmp_dir / "audio.wav")
+        with open(audio, "wb") as f:
+            f.write(b"fake")
+        with patch("ascii_player.audio.subprocess.Popen") as popen:
+            play_audio(audio)
+
+        cmd = popen.call_args.args[0]
+        assert cmd[cmd.index("-ss") + 1] == "0.000"
+
+
+class TestRestartAudio:
+    def test_restart_passes_volume_and_offset(self):
+        old = MagicMock()
+        with patch("ascii_player.audio.stop_audio") as stop:
+            with patch("ascii_player.audio.play_audio", return_value="new") as play:
+                result = restart_audio(old, "audio.wav", 75, 4.5)
+
+        stop.assert_called_once_with(old)
+        play.assert_called_once_with("audio.wav", 75, start_time=4.5)
+        assert result == "new"
+
+    def test_three_argument_call_is_backward_compatible(self):
+        with patch("ascii_player.audio.play_audio") as play:
+            restart_audio(None, "audio.wav")
+        play.assert_called_once_with("audio.wav", 100, start_time=0.0)
 
 
 class TestStopAudio:

@@ -1,16 +1,35 @@
-"""TUI widgets for ASCII Video Player."""
+"""TUI widgets for ASCII Art Studio & Video Player."""
 
 import os
+from typing import Optional, Tuple
 
 from textual import on
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.events import Key
-from textual.widgets import Button, Input, Label, ListItem, ListView, Select, Static
+from textual.widgets import (
+    Button,
+    Checkbox,
+    Input,
+    Label,
+    ListItem,
+    ListView,
+    OptionList,
+    Select,
+    Static,
+)
 
 from .. import __version__
-from ..config import ASCII_PRESETS
-from ..images import IMAGE_EXT, is_image_file, is_image_url
+from ..config import ASCII_PRESETS, FILTER_MODES, POST_FX_MODES
+from ..images import (
+    IMAGE_EXT,
+    AsciiGrid,
+    ansi_to_content,
+    grid_to_content,
+    is_image_file,
+    is_image_url,
+)
+from ..prompt_gen import STARTER_PROMPTS, available_banner_fonts
 from .helpers import LYRICS_EXT, VIDEO_EXT, _load_recent
 
 
@@ -26,16 +45,16 @@ class PlaylistPanel(Static):
             yield Label("PLAYLIST", id="playlist-title")
             yield ListView(id="playlist-list", classes="playlist-list")
             with Horizontal(classes="playlist-buttons"):
-                yield Button("Clear", id="btn-clear-pl")
-                yield Button("Prev", id="btn-prev-pl")
-                yield Button("Next", id="btn-next-pl")
+                yield Button("Clear", id="btn-clear-pl", compact=True)
+                yield Button("Prev", id="btn-prev-pl", compact=True)
+                yield Button("Next", id="btn-next-pl", compact=True)
 
     def refresh_playlist(self, playlist, index):
         lv = self.query_one("#playlist-list", ListView)
         lv.clear()
         for i, item in enumerate(playlist):
             name = os.path.basename(item["path"])
-            prefix = "► " if i == index else "  "
+            prefix = "> " if i == index else "  "
             self._seq += 1
             lv.append(ListItem(Static(f"{prefix}{name}"), id=f"pl-{self._seq}"))
         if not playlist:
@@ -57,7 +76,7 @@ class FileBrowser(Static):
     def __init__(self, start_dir=".", **kwargs):
         super().__init__(**kwargs)
         self.current_dir = os.path.abspath(start_dir)
-        self.entries = []  # list of (display, path, kind)
+        self.entries = []
         self._cursor = 0
         self._seq = 0
 
@@ -69,12 +88,15 @@ class FileBrowser(Static):
                     placeholder="Path: /dir or C:\\dir",
                     id="dir-input",
                     classes="dir-input",
+                    compact=True,
                 )
             yield ListView(id="file-list", classes="file-list")
             with Horizontal(classes="browser-buttons"):
-                yield Button("Up Dir", id="btn-up")
-                yield Button("Home", id="btn-home")
-                yield Button("Refresh", id="btn-refresh")
+                yield Button("Up", id="btn-up", compact=True)
+                yield Button("Home", id="btn-home", compact=True)
+                yield Button("Refresh", id="btn-refresh", compact=True)
+                yield Button("Paste", id="btn-paste", compact=True)
+                yield Button("Browse", id="btn-browse", compact=True)
 
     def on_mount(self):
         self.refresh_files()
@@ -268,39 +290,219 @@ class FileBrowser(Static):
         return f"{size:.1f}TB"
 
 
+class PromptPanel(Static):
+    """Prompt-to-ASCII studio panel supporting AI, Web, Ollama, FIGlet, and Procedural."""
+
+    def compose(self) -> ComposeResult:
+        fonts = available_banner_fonts()
+        default_font = "slant" if "slant" in fonts else fonts[0]
+        with Vertical():
+            yield Label("PROMPT TO ASCII", classes="section-title")
+            yield Input(
+                placeholder="Describe anything (e.g. cyberpunk cat)...",
+                id="prompt-input",
+                compact=True,
+            )
+            with Horizontal(classes="compact-row"):
+                yield Label("Engine:", classes="compact-label")
+                yield Select(
+                    [
+                        ("Auto", "auto"),
+                        ("AI Image", "ai"),
+                        ("Web Image", "web"),
+                        ("Ollama (Local)", "ollama"),
+                        ("Banner (FIGlet)", "banner"),
+                        ("Procedural", "procedural"),
+                    ],
+                    value="auto",
+                    id="select-prompt-engine",
+                    allow_blank=False,
+                    compact=True,
+                    classes="compact-control",
+                )
+            with Horizontal(classes="compact-row"):
+                yield Label("Font:", classes="compact-label")
+                yield Select(
+                    [(f, f) for f in fonts],
+                    value=default_font,
+                    id="select-banner-font",
+                    allow_blank=False,
+                    compact=True,
+                    classes="compact-control",
+                )
+            with Horizontal(classes="action-row"):
+                yield Button("Generate", id="btn-generate", variant="primary", compact=True)
+                yield Button("Surprise", id="btn-surprise", compact=True)
+            yield Static("[READY] Enter prompt + press Enter", id="prompt-status")
+            yield Label("PRESETS", classes="section-title")
+            yield ListView(id="prompt-presets")
+
+    def on_mount(self):
+        lv = self.query_one("#prompt-presets", ListView)
+        for idx, prompt in enumerate(STARTER_PROMPTS):
+            item = ListItem(Static(f"  {prompt}"), id=f"preset-prompt-{idx}")
+            item.data_prompt = prompt
+            lv.append(item)
+
+
+class UrlPanel(Static):
+    """Universal URL loader panel (PNG/JPG/GIF, webpage og:image, YouTube)."""
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("URL TO ASCII", classes="section-title")
+            yield Input(
+                placeholder="PNG/JPG, webpage, or YouTube URL...",
+                id="url-input",
+                compact=True,
+            )
+            with Horizontal(classes="action-row"):
+                yield Button("Load", id="btn-load-url", variant="primary", compact=True)
+                yield Button("Play URL", id="btn-play-url", compact=True)
+                yield Button("Paste", id="btn-paste-url", compact=True)
+            yield Static(
+                "Supports direct images, webpages (extracts og:image), "
+                "GIFs, and YouTube videos.",
+                id="url-info",
+            )
+
+
+class WebcamPanel(Static):
+    """Live inline ASCII webcam & snapshot controller."""
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label("LIVE WEBCAM", classes="section-title")
+            with Horizontal(classes="compact-row"):
+                yield Label("Cam #:", classes="compact-label")
+                yield Input(
+                    value="0",
+                    id="input-camera",
+                    type="integer",
+                    compact=True,
+                    classes="compact-control",
+                )
+            with Horizontal(classes="compact-row"):
+                yield Label("Filter:", classes="compact-label")
+                yield Select(
+                    [(f, f) for f in ("none", "mirror", "edge", "invert", "colorcycle")],
+                    value="none",
+                    id="select-cam-filter",
+                    allow_blank=False,
+                    compact=True,
+                    classes="compact-control",
+                )
+            with Vertical(classes="cam-buttons"):
+                yield Button("Start Live Cam", id="btn-cam-toggle", variant="success", compact=True)
+                yield Button("Freeze Snapshot", id="btn-cam-snap", compact=True)
+                yield Button("Pop-out Cam", id="btn-webcam", compact=True)
+            yield Static("[IDLE] Camera stopped", id="cam-stats")
+
+
 class SettingsPanel(Static):
-    """Extended settings with width, preset, color, audio, fps, export, lyrics."""
+    """Compact Style & Output Inspector with live reactive controls."""
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="settings-inner"):
-            yield Label("SETTINGS", classes="section-title")
+            yield Label("STYLE", classes="group-title")
+            with Horizontal(classes="toggle-row"):
+                yield Checkbox("Auto-fit", value=True, id="check-autofit", compact=True)
+            with Horizontal(classes="toggle-row"):
+                yield Checkbox("Color (RGB)", value=False, id="select-color", compact=True)
             with Horizontal(classes="setting-row"):
                 yield Label("Width:", classes="setting-label")
-                yield Input(value="80", id="input-width", type="integer", classes="setting-input")
+                yield Input(
+                    value="80",
+                    id="input-width",
+                    type="integer",
+                    classes="setting-input",
+                    compact=True,
+                )
             with Horizontal(classes="setting-row"):
                 yield Label("Preset:", classes="setting-label")
                 yield Select(
                     [(name, name) for name in ASCII_PRESETS.keys()],
                     value="classic",
                     id="select-preset",
+                    allow_blank=False,
                     classes="setting-select",
+                    compact=True,
                 )
             with Horizontal(classes="setting-row"):
-                yield Label("Color:", classes="setting-label")
-                yield Select(
-                    [("Off", False), ("On", True)],
-                    value=False,
-                    id="select-color",
-                    classes="setting-select",
+                yield Label("Chars:", classes="setting-label")
+                yield Input(
+                    value="",
+                    id="input-charset",
+                    placeholder="custom ramp",
+                    classes="setting-input",
+                    compact=True,
                 )
             with Horizontal(classes="setting-row"):
-                yield Label("Audio:", classes="setting-label")
-                yield Select(
-                    [("On", True), ("Off", False)],
-                    value=True,
-                    id="select-audio",
-                    classes="setting-select",
+                yield Label("Aspect:", classes="setting-label")
+                yield Input(
+                    value="0.55",
+                    id="input-aspect",
+                    classes="setting-input",
+                    compact=True,
                 )
+
+            yield Label("IMAGE & FX", classes="group-title")
+            with Horizontal(classes="setting-row"):
+                yield Label("Filter:", classes="setting-label")
+                yield Select(
+                    [(mode, mode) for mode in FILTER_MODES],
+                    value="none",
+                    id="select-filter",
+                    allow_blank=False,
+                    classes="setting-select",
+                    compact=True,
+                )
+            with Horizontal(classes="setting-row"):
+                yield Label("Contrast:", classes="setting-label")
+                yield Input(
+                    value="1.0",
+                    id="input-contrast",
+                    classes="setting-input",
+                    compact=True,
+                )
+            with Horizontal(classes="setting-row"):
+                yield Label("Bright:", classes="setting-label")
+                yield Input(
+                    value="1.0",
+                    id="input-brightness",
+                    classes="setting-input",
+                    compact=True,
+                )
+            with Horizontal(classes="toggle-grid"):
+                yield Checkbox("Dither", value=False, id="select-dither", compact=True)
+                yield Checkbox("Invert", value=False, id="select-invert", compact=True)
+            with Horizontal(classes="toggle-grid"):
+                yield Checkbox("Crop", value=False, id="select-crop", compact=True)
+                yield Checkbox("Loop", value=False, id="select-loop", compact=True)
+
+            yield Label("POST-FX (STACKABLE)", classes="group-title")
+            with Horizontal(classes="toggle-grid"):
+                yield Checkbox("Scanlines", value=False, id="fx-scanlines", compact=True)
+                yield Checkbox("Chromatic", value=False, id="fx-chromatic", compact=True)
+            with Horizontal(classes="toggle-grid"):
+                yield Checkbox("Vignette", value=False, id="fx-vignette", compact=True)
+                yield Checkbox("Bloom", value=False, id="fx-bloom", compact=True)
+            with Horizontal(classes="toggle-grid"):
+                yield Checkbox("Halftone", value=False, id="fx-halftone", compact=True)
+                yield Checkbox("Glitch", value=False, id="fx-glitch", compact=True)
+
+            with Horizontal(classes="setting-row"):
+                yield Label("Anim:", classes="setting-label")
+                yield Select(
+                    [(name, name) for name in ("none", "decode", "type", "rain")],
+                    value="decode",
+                    id="select-animate",
+                    allow_blank=False,
+                    classes="setting-select",
+                    compact=True,
+                )
+
+            yield Label("PLAYBACK & EXPORT", classes="group-title")
             with Horizontal(classes="setting-row"):
                 yield Label("FPS:", classes="setting-label")
                 yield Input(
@@ -309,14 +511,39 @@ class SettingsPanel(Static):
                     type="integer",
                     classes="setting-input",
                     placeholder="auto",
+                    compact=True,
+                )
+            with Horizontal(classes="toggle-grid"):
+                yield Checkbox("Audio", value=True, id="select-audio", compact=True)
+                yield Checkbox("Cache", value=False, id="select-cache", compact=True)
+            with Horizontal(classes="setting-row"):
+                yield Label("Lyrics:", classes="setting-label")
+                yield Select(
+                    [("Auto", "auto"), ("Split", "split"), ("Fullscreen", "fullscreen")],
+                    value="auto",
+                    id="select-lyrics",
+                    allow_blank=False,
+                    classes="setting-select",
+                    compact=True,
                 )
             with Horizontal(classes="setting-row"):
                 yield Label("Export:", classes="setting-label")
                 yield Select(
-                    [("Off", "none"), ("GIF", "gif"), ("MP4", "mp4")],
+                    [
+                        ("Off", "none"),
+                        ("TXT", "txt"),
+                        ("ANS", "ans"),
+                        ("HTML", "html"),
+                        ("PNG", "png"),
+                        ("GIF", "gif"),
+                        ("MP4 (CLI / pop-out only)", "mp4"),
+                    ],
                     value="none",
                     id="select-export",
+                    allow_blank=False,
                     classes="setting-select",
+                    compact=True,
+                    tooltip="MP4 is a CLI / pop-out feature; Ctrl+E exports images/text only.",
                 )
             with Horizontal(classes="setting-row"):
                 yield Label("Output:", classes="setting-label")
@@ -324,73 +551,18 @@ class SettingsPanel(Static):
                     value="",
                     id="input-output",
                     classes="setting-input",
-                    placeholder="(optional) export filename",
+                    placeholder="output filename",
+                    compact=True,
                 )
-            with Horizontal(classes="setting-row"):
-                yield Label("Lyrics:", classes="setting-label")
-                yield Select(
-                    [("Auto", "auto"), ("Split", "split"), ("Fullscreen", "fullscreen")],
-                    value="auto",
-                    id="select-lyrics",
-                    classes="setting-select",
-                )
-            with Horizontal(classes="setting-row"):
-                yield Label("Cache:", classes="setting-label")
-                yield Select(
-                    [("Off", False), ("On", True)],
-                    value=False,
-                    id="select-cache",
-                    classes="setting-select",
-                )
-            with Horizontal(classes="setting-row"):
-                yield Label("Anim:", classes="setting-label")
-                yield Select(
-                    [(name, name) for name in ("none", "decode", "type", "rain")],
-                    value="decode",
-                    id="select-animate",
-                    classes="setting-select",
-                )
-            with Horizontal(classes="setting-row"):
-                yield Label("Dither:", classes="setting-label")
-                yield Select(
-                    [("Off", False), ("On", True)],
-                    value=False,
-                    id="select-dither",
-                    classes="setting-select",
-                )
-            with Horizontal(classes="setting-row"):
-                yield Label("Invert:", classes="setting-label")
-                yield Select(
-                    [("Off", False), ("On", True)],
-                    value=False,
-                    id="select-invert",
-                    classes="setting-select",
-                )
-            with Horizontal(classes="setting-row"):
-                yield Label("Loop:", classes="setting-label")
-                yield Select(
-                    [("Off", False), ("On", True)],
-                    value=False,
-                    id="select-loop",
-                    classes="setting-select",
-                )
-            with Horizontal(classes="setting-row"):
-                yield Label("Crop:", classes="setting-label")
-                yield Select(
-                    [("Off", False), ("On", True)],
-                    value=False,
-                    id="select-crop",
-                    classes="setting-select",
-                )
-            with Horizontal(classes="setting-row"):
-                yield Label("Aspect:", classes="setting-label")
-                yield Input(value="0.55", id="input-aspect", classes="setting-input")
 
     def collect(self):
         """Return a dict of current settings."""
+        post_fx = [
+            mode for mode in POST_FX_MODES if bool(self.query_one(f"#fx-{mode}").value)
+        ]
         return {
             "width": self.query_one("#input-width").value,
-            "preset": (self.query_one("#select-preset").value or ""),
+            "preset": (self.query_one("#select-preset").value or "classic"),
             "color": bool(self.query_one("#select-color").value),
             "audio": bool(self.query_one("#select-audio").value),
             "fps": self.query_one("#input-fps").value,
@@ -404,6 +576,12 @@ class SettingsPanel(Static):
             "loop": bool(self.query_one("#select-loop").value),
             "crop": bool(self.query_one("#select-crop").value),
             "aspect": self.query_one("#input-aspect").value,
+            "auto_fit": bool(self.query_one("#check-autofit").value),
+            "filter": (self.query_one("#select-filter").value or "none"),
+            "contrast": self.query_one("#input-contrast").value,
+            "brightness": self.query_one("#input-brightness").value,
+            "charset": self.query_one("#input-charset").value,
+            "post_fx": post_fx,
         }
 
     def load_from_config(self, cfg):
@@ -417,7 +595,7 @@ class SettingsPanel(Static):
         fps = cfg.get("fps")
         self.query_one("#input-fps").value = str(int(fps)) if fps else ""
         export = cfg.get("export", "none")
-        if export in ("gif", "mp4"):
+        if export in ("txt", "ans", "html", "png", "gif", "mp4"):
             self.query_one("#select-export").value = export
         self.query_one("#input-output").value = str(cfg.get("output", "") or "")
         lyrics = cfg.get("lyrics", "auto")
@@ -437,9 +615,27 @@ class SettingsPanel(Static):
         except (TypeError, ValueError):
             self.query_one("#input-aspect").value = "0.55"
 
+        if "auto_fit" in cfg:
+            self.query_one("#check-autofit").value = bool(cfg["auto_fit"])
+        filter_mode = cfg.get("filter", "none")
+        if filter_mode in FILTER_MODES:
+            self.query_one("#select-filter").value = filter_mode
+        try:
+            self.query_one("#input-contrast").value = str(float(cfg.get("contrast", 1.0)))
+        except (TypeError, ValueError):
+            self.query_one("#input-contrast").value = "1.0"
+        try:
+            self.query_one("#input-brightness").value = str(float(cfg.get("brightness", 1.0)))
+        except (TypeError, ValueError):
+            self.query_one("#input-brightness").value = "1.0"
+        self.query_one("#input-charset").value = str(cfg.get("charset", "") or "")
+        active_fx = {str(fx).strip().lower() for fx in (cfg.get("post_fx") or ())}
+        for mode in POST_FX_MODES:
+            self.query_one(f"#fx-{mode}").value = mode in active_fx
+
 
 class RecentList(Static):
-    """Quick-access list of recently played items."""
+    """Quick-access list of recently played/loaded items."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -483,15 +679,18 @@ class RecentList(Static):
         item = event.item
         path = getattr(item, "data_path", None)
         if path:
-            kind = "image" if (is_image_file(path) or is_image_url(str(path))) else "video"
-            self.app.select_file(path, kind)
+            if str(path).lower().startswith(("http://", "https://", "www.")):
+                self.app.load_url_source(str(path))
+            else:
+                kind = "image" if (is_image_file(path) or is_image_url(str(path))) else "video"
+                self.app.select_file(path, kind)
 
 
 class CommandPreview(Static):
-    """Live preview of the command that would be launched."""
+    """Live preview of the CLI command that would be launched."""
 
     def compose(self) -> ComposeResult:
-        yield Label("COMMAND", classes="section-title")
+        yield Label("COMMAND", classes="group-title")
         yield Static("", id="cmd-preview", classes="cmd-preview")
 
     def show(self, text):
@@ -499,26 +698,65 @@ class CommandPreview(Static):
 
 
 class InlinePreview(Static):
-    """Inline ASCII preview of the selected video or image frame."""
+    """Scrollable full-viewport TrueColor ASCII Art Canvas."""
 
     def compose(self) -> ComposeResult:
-        with Vertical(classes="preview-inner"):
-            yield Label("PREVIEW", classes="section-title")
+        with Horizontal(id="art-bar"):
+            yield Static("", id="art-bar-spacer")
+            yield Button("fit", id="btn-autofit", classes="chip", compact=True)
+            yield Button("type over", id="btn-edit-in-draw", classes="chip", compact=True)
+            yield Button("copy", id="btn-copy-ascii", classes="chip", compact=True)
+            yield Button("save", id="btn-export-now", classes="chip", compact=True)
+        with ScrollableContainer(id="canvas-scroll"):
             yield Static(
-                "Select a video to see an ASCII preview here.",
+                "Select a file, type a prompt, paste a URL, or start webcam.",
                 id="preview-body",
                 classes="preview-body",
                 markup=False,
             )
 
+    def viewport_size(self) -> Tuple[int, int]:
+        """Return usable character columns and rows of the canvas viewport."""
+        try:
+            scroll = self.query_one("#canvas-scroll", ScrollableContainer)
+            cw = int(scroll.content_size.width or scroll.size.width or 0)
+            ch = int(scroll.content_size.height or scroll.size.height or 0)
+            if cw <= 0 or ch <= 0:
+                stage = self.app.query_one("#stage")
+                cw = int(stage.size.width or self.app.size.width or 80)
+                ch = int(stage.size.height or max(10, self.app.size.height - 8) or 24)
+            return max(24, cw - 2), max(8, ch - 1)
+        except Exception:
+            return 80, 24
+
     def show_message(self, text):
-        self.query_one("#preview-body").update(text)
+        self.query_one("#preview-body", Static).update(text)
 
     def show_frame(self, ascii_lines):
         if not ascii_lines:
             self.show_message("(no frame)")
             return
-        self.query_one("#preview-body").update("\n".join(ascii_lines))
+        joined = "\n".join(ascii_lines)
+        # Native Content avoids Textual re-parsing every ANSI style on each
+        # reveal-animation / visualizer frame.
+        renderable = ansi_to_content(joined)
+        dims = (len(ascii_lines), len(ascii_lines[0]))
+        layout = dims != getattr(self, "_last_grid_dims", None)
+        self._last_grid_dims = dims
+        self.query_one("#preview-body", Static).update(renderable, layout=layout)
+
+    def show_grid(self, grid: AsciiGrid, color: bool = True):
+        if grid is None:
+            self.show_message("(no frame)")
+            return
+        # Native Content skips Textual's per-frame re-parse of Rich style
+        # strings (the dominant cost of the old rich-Text path).
+        renderable = grid_to_content(grid, color=color)
+        # Only pay for a layout pass when the grid actually changed size.
+        dims = (grid.width, grid.height)
+        layout = dims != getattr(self, "_last_grid_dims", None)
+        self._last_grid_dims = dims
+        self.query_one("#preview-body", Static).update(renderable, layout=layout)
 
 
 class StatusBar(Static):
@@ -526,7 +764,185 @@ class StatusBar(Static):
 
     def compose(self) -> ComposeResult:
         yield Horizontal(
-            Static("Ready", id="status-text"),
-            Static("", id="key-hints"),
-            Static(f"v{__version__}", id="version-text"),
+            Static("Ready", id="status-text", markup=False),
+            Static("", id="key-hints", markup=False),
+            Static(f"v{__version__}", id="version-text", markup=False),
+            id="status-bar",
         )
+
+
+class StudioTopBar(Static):
+    """Minimalist 1-line OpenCode/Claude-style top bar with Studio | Type tabs."""
+
+    def compose(self) -> ComposeResult:
+        yield Horizontal(
+            Static("◆ ascii-studio", id="brand-mark", markup=False),
+            Button("Studio", id="btn-mode-studio", classes="mode-tab active", compact=True),
+            Button("Type", id="btn-mode-draw", classes="mode-tab", compact=True),
+            Static("·  ready", id="canvas-meta", markup=False),
+            Button("mono", id="btn-color-toggle", classes="chip", compact=True),
+            Button("files ^O", id="btn-toggle-files", classes="chip", compact=True),
+            Button("style ^B", id="btn-toggle-style", classes="chip", compact=True),
+            Button("^K", id="btn-open-palette", classes="chip accent-chip", compact=True),
+            id="topbar-row",
+        )
+
+
+_HERO_PALETTES = {
+    "opencode": ((245, 158, 11), (244, 114, 182), (167, 139, 250)),
+    "claude": ((217, 119, 87), (245, 158, 11), (245, 240, 235)),
+    "dark": ((88, 166, 255), (129, 140, 248), (192, 132, 252)),
+    "retro": ((255, 176, 0), (255, 120, 0), (255, 228, 163)),
+    "steins_gate": ((255, 140, 36), (96, 165, 250), (56, 189, 248)),
+    "light": ((37, 99, 235), (79, 70, 229), (147, 51, 234)),
+    "high_contrast": ((0, 255, 102), (0, 229, 255), (255, 255, 255)),
+}
+
+
+def render_gradient_logo(wordmark: str, theme_name: str = "opencode", phase: float = 0.0):
+    """Render the welcome ASCII wordmark with a smooth TrueColor gradient."""
+    import math
+
+    from rich.text import Text
+
+    c0, c1, c2 = _HERO_PALETTES.get(theme_name, _HERO_PALETTES["opencode"])
+    lines = wordmark.splitlines()
+    width = max((len(line) for line in lines), default=1) or 1
+    out = Text(no_wrap=True)
+    for r_idx, line in enumerate(lines):
+        for c_idx, ch in enumerate(line):
+            if ch == " ":
+                out.append(" ")
+                continue
+            pos = (c_idx / max(1, width - 1) + math.sin(phase + r_idx * 0.35) * 0.12) % 1.0
+            if pos < 0.5:
+                t = pos * 2.0
+                r = int(c0[0] + (c1[0] - c0[0]) * t)
+                g = int(c0[1] + (c1[1] - c0[1]) * t)
+                b = int(c0[2] + (c1[2] - c0[2]) * t)
+            else:
+                t = (pos - 0.5) * 2.0
+                r = int(c1[0] + (c2[0] - c1[0]) * t)
+                g = int(c1[1] + (c2[1] - c1[1]) * t)
+                b = int(c1[2] + (c2[2] - c1[2]) * t)
+            out.append(ch, style=f"bold rgb({r},{g},{b})")
+        if r_idx < len(lines) - 1:
+            out.append("\n")
+    return out
+
+
+class WelcomeHero(Static):
+    """Centered OpenCode / Claude Code welcome screen shown when canvas is idle."""
+
+    _WORDMARK = (
+        " █████╗ ███████╗ ██████╗██╗██╗    ███████╗████████╗██╗   ██╗██████╗ ██╗ ██████╗ \n"
+        "██╔══██╗██╔════╝██╔════╝██║██║    ██╔════╝╚══██╔══╝██║   ██║██╔══██╗██║██╔═══██╗\n"
+        "███████║███████╗██║     ██║██║    ███████╗   ██║   ██║   ██║██║  ██║██║██║   ██║\n"
+        "██╔══██║╚════██║██║     ██║██║    ╚════██║   ██║   ██║   ██║██║  ██║██║██║   ██║\n"
+        "██║  ██║███████║╚██████╗██║██║    ███████║   ██║   ╚██████╔╝██████╔╝██║╚██████╔╝\n"
+        "╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝╚═╝    ╚══════╝   ╚═╝    ╚═════╝ ╚═════╝ ╚═╝ ╚═════╝ "
+    )
+
+    _COMPACT_WORDMARK = (
+        "▄▀█ █▀ █▀▀ █ █   █▀ ▀█▀ █ █ █▀▄ █ █▀█\n"
+        "█▀█ ▄█ █▄▄ █ █   ▄█  █  █▄█ █▄▀ █ █▄█"
+    )
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._compact: bool = False
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="welcome-inner"):
+            yield Static(render_gradient_logo(self._WORDMARK), id="welcome-logo")
+            yield Static(
+                "png  ·  prompt  ·  url  ·  webcam  ·  terminal type",
+                id="welcome-tagline",
+            )
+            with Vertical(id="welcome-guide"):
+                yield Static(
+                    "  type text       generate ascii art from any prompt\n"
+                    "  path / Ctrl+V   load png, jpg, gif, mp4 or clipboard\n"
+                    "  paste url       image, webpage og:image, or youtube\n"
+                    "  /webcam · ^D    live ascii cam / typing · ^Q quit\n"
+                    "  /fx · /preset   HD halfblock, braille_hd & stackable FX\n"
+                    "  Tab / Esc · ↑↓  navigate drawers, autocomplete & omnibox",
+                    id="welcome-tips",
+                )
+            with Horizontal(id="welcome-starters"):
+                yield Button(
+                    "samurai cat",
+                    id="btn-hero-1",
+                    classes="starter-chip",
+                    compact=True,
+                )
+                yield Button(
+                    "mount fuji",
+                    id="btn-hero-2",
+                    classes="starter-chip",
+                    compact=True,
+                )
+                yield Button(
+                    "live webcam",
+                    id="btn-hero-3",
+                    classes="starter-chip",
+                    compact=True,
+                )
+                yield Button(
+                    "banner",
+                    id="btn-hero-4",
+                    classes="starter-chip",
+                    compact=True,
+                )
+                yield Button(
+                    "type skull (^D)",
+                    id="btn-hero-draw",
+                    classes="starter-chip accent-chip",
+                    compact=True,
+                )
+
+    def update_logo(
+        self, theme_name: str, phase: float = 0.0, compact: Optional[bool] = None
+    ) -> None:
+        if compact is not None:
+            self._compact = compact
+        wordmark = self._COMPACT_WORDMARK if self._compact else self._WORDMARK
+        try:
+            self.query_one("#welcome-logo", Static).update(
+                render_gradient_logo(wordmark, theme_name=theme_name, phase=phase)
+            )
+        except Exception:
+            pass
+
+
+class OmniboxBar(Static):
+    """Floating OpenCode left-accent prompt card with live autocomplete popup."""
+
+    def compose(self) -> ComposeResult:
+        popup = OptionList(id="autocomplete-popup")
+        popup.can_focus = False
+        with Vertical(id="omnibox-shell"):
+            yield Static("", id="activity-line", markup=False)
+            with Vertical(id="autocomplete-box"):
+                yield popup
+                yield Static(
+                    "↑↓ select · Tab complete · Enter run · Esc close",
+                    id="autocomplete-hint",
+                    markup=False,
+                )
+            with Vertical(id="omnibox-wrap"):
+                with Horizontal(id="omnibox-input-row"):
+                    yield Static("❯ ", id="omnibox-caret", markup=False)
+                    yield Input(
+                        placeholder=(
+                            "Describe anything, paste a PNG path or URL, /command, or @file..."
+                        ),
+                        id="omnibox",
+                        compact=True,
+                    )
+                with Horizontal(id="omnibox-meta"):
+                    yield Static(
+                        "auto · classic · mono · fit · opencode",
+                        id="omnibox-pills",
+                        markup=False,
+                    )

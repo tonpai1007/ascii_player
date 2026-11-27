@@ -1,10 +1,15 @@
 """Tests for ascii_player.cli - command-line interface."""
 
 import sys
+from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
+import ascii_player.__main__ as entry
 from ascii_player.cli import parse_args
-from ascii_player.config import DEFAULT_WIDTH
+from ascii_player.config import DEFAULT_CONFIG, DEFAULT_WIDTH
+from ascii_player.url_loader import ResolvedURL
 
 
 class TestParseArgs:
@@ -27,13 +32,17 @@ class TestParseArgs:
         args = self._parse(["-w", "120"])
         assert args.width == 120
 
-    def test_width_min_1(self):
-        args = self._parse(["-w", "0"])
-        assert args.width == 0
+    def test_width_zero_rejected(self):
+        with pytest.raises(SystemExit):
+            self._parse(["-w", "0"])
 
-    def test_width_negative_clamped(self):
-        args = self._parse(["-w", "-10"])
-        assert args.width == 0
+    def test_width_negative_rejected(self):
+        with pytest.raises(SystemExit):
+            self._parse(["-w", "-10"])
+
+    def test_width_non_integer_rejected(self):
+        with pytest.raises(SystemExit):
+            self._parse(["-w", "abc"])
 
     def test_fps(self):
         args = self._parse(["-f", "60"])
@@ -112,9 +121,17 @@ class TestParseArgs:
         assert args.clipboard is True
 
     def test_export_text_choices(self):
-        for choice in ("txt", "ans", "html"):
+        for choice in ("txt", "ans", "html", "png"):
             args = self._parse(["--export", choice])
             assert args.export == choice
+
+    def test_prompt_flags(self):
+        args = self._parse(
+            ["--prompt", "cyberpunk cat", "--prompt-engine", "procedural", "--font", "doom"]
+        )
+        assert args.prompt == "cyberpunk cat"
+        assert args.prompt_engine == "procedural"
+        assert args.font == "doom"
 
     def test_combined_args(self):
         args = self._parse(["video.mp4", "-w", "100", "-c", "-p", "blocks", "--no-audio"])
@@ -123,3 +140,94 @@ class TestParseArgs:
         assert args.color is True
         assert args.preset == "blocks"
         assert args.no_audio is True
+
+
+def _main_args(video="https://example.com/page", **overrides):
+    values = dict(
+        video=video,
+        tui=False,
+        webcam=False,
+        clipboard=False,
+        prompt=None,
+        width=DEFAULT_WIDTH,
+        fps=None,
+        color=False,
+        no_audio=False,
+        preset=None,
+        visualizer="none",
+        export=None,
+        output=None,
+        lyrics=None,
+        lyrics_mode="split",
+        no_controls=False,
+        camera=0,
+        cache=False,
+        animate="none",
+        invert=False,
+        dither=False,
+        crop=False,
+        aspect=0.55,
+        loop=False,
+        hold=0.0,
+        prompt_engine="auto",
+        font="slant",
+        filter="none",
+    )
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def _patch_main(monkeypatch, args, config=None):
+    monkeypatch.setattr(entry, "parse_args", lambda: args)
+    monkeypatch.setattr(entry, "setup_logger", lambda **kwargs: None)
+    monkeypatch.setattr(
+        entry, "load_config", lambda: {**DEFAULT_CONFIG, **(config or {})}
+    )
+    played = {}
+    monkeypatch.setattr(entry, "play_video", lambda path, **kwargs: played.update(
+        path=path, **kwargs
+    ))
+    return played
+
+
+class TestMainUrlResolution:
+    def test_resolve_exception_is_visible(self, monkeypatch, capsys):
+        played = _patch_main(monkeypatch, _main_args())
+
+        def boom(url):
+            raise RuntimeError("DNS failed")
+
+        monkeypatch.setattr("ascii_player.url_loader.resolve_url", boom)
+        entry.main()
+        assert "Warning: could not resolve URL: DNS failed" in capsys.readouterr().out
+        assert played["path"] == "https://example.com/page"
+
+    def test_resolved_video_is_used_and_config_visualizer_passed(
+        self, monkeypatch, capsys, tmp_path
+    ):
+        args = _main_args(video="https://example.com/clip.mp4")
+        played = _patch_main(monkeypatch, args, config={"visualizer": "bars"})
+        saved = tmp_path / "clip.mp4"
+        saved.write_bytes(b"video")
+        resolved = ResolvedURL(
+            url=args.video, kind="video", title="clip", saved_path=str(saved)
+        )
+        monkeypatch.setattr(
+            "ascii_player.url_loader.resolve_url", lambda url: resolved
+        )
+        entry.main()
+        assert played["path"] == str(saved)
+        assert played["visualizer"] == "bars"
+
+    def test_unusable_url_exits_with_error(self, monkeypatch, capsys):
+        _patch_main(monkeypatch, _main_args(video="https://example.com/clip.mp4"))
+        resolved = ResolvedURL(
+            url="https://example.com/clip.mp4", kind="video", title="clip"
+        )
+        monkeypatch.setattr(
+            "ascii_player.url_loader.resolve_url", lambda url: resolved
+        )
+        with pytest.raises(SystemExit) as exc:
+            entry.main()
+        assert exc.value.code == 1
+        assert "did not resolve to a playable video or image" in capsys.readouterr().out

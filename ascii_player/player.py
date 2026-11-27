@@ -32,7 +32,7 @@ def get_terminal_size() -> Tuple[int, int]:
 
 class VideoPlayer:
     """Main video player class with separated concerns.
-    
+
     This class handles video playback with ASCII conversion, managing
     all aspects of playback including audio, lyrics, controls, and export.
     """
@@ -43,7 +43,7 @@ class VideoPlayer:
         config: PlayerConfig,
     ) -> None:
         """Initialize the video player.
-        
+
         Args:
             video_path: Path to the video file
             config: Player configuration
@@ -76,22 +76,39 @@ class VideoPlayer:
         self.frame_num: int = 0
         self.skipped: int = 0
         self.start_time: float = 0.0
+        self.wall_start: float = 0.0
         self.last_volume: int = 100
         self.paused_time: float = 0.0
         self._pause_start: float = 0.0
         self._total_paused: float = 0.0
+        self._was_paused: bool = False
+        self._audio_resynced_this_iteration: bool = False
+        self.premature_eof: bool = False
 
     def play(self) -> None:
         """Start video playback.
-        
+
         This is the main entry point that orchestrates the entire playback process.
+        Audio/video alignment is resynced on discrete events (seek, volume change,
+        A-B loop jump, pause/resume); continuous drift is not corrected because
+        there is no ffplay IPC control channel here.
         """
-        self._validate_video()
-        self._setup_video()
-        self._setup_components()
-        self._log_video_info()
+        try:
+            self.config.validate()
+        except ValueError as exc:
+            print(f"Configuration error: {exc}")
+            logger.error("Configuration error: {err}", err=exc)
+            raise SystemExit(1) from None
+
+        # A reused player must not report stale statistics if setup fails again.
+        self.start_time = 0.0
+        self.wall_start = 0.0
 
         try:
+            self._validate_video()
+            self._setup_video()
+            self._setup_components()
+            self._log_video_info()
             self._playback_loop()
         except KeyboardInterrupt:
             logger.info("Interrupted by user")
@@ -100,7 +117,7 @@ class VideoPlayer:
 
     def _validate_video(self) -> None:
         """Validate that the video file exists and can be opened.
-        
+
         Raises:
             SystemExit: If video file doesn't exist or can't be opened
         """
@@ -113,6 +130,8 @@ class VideoPlayer:
         self.cap = cv2.VideoCapture(self.video_path)
         if not self.cap.isOpened():
             logger.error("Cannot open video: {path}", path=self.video_path)
+            self.cap.release()
+            self.cap = None
             raise SystemExit(1)
 
         self.video_fps = self.cap.get(cv2.CAP_PROP_FPS) or 30
@@ -190,7 +209,9 @@ class VideoPlayer:
     def _setup_exporter(self) -> None:
         """Initialize exporter if export is enabled."""
         if self.config.export:
-            self.exporter = ASCIIExporter(self.config.width, int(self.fps))
+            # Keep fractional FPS: truncating here used to turn 0.5 fps into 0
+            # and crash the exporter on division by zero.
+            self.exporter = ASCIIExporter(self.config.width, self.fps)
 
     def _setup_renderer(self) -> None:
         """Setup the appropriate renderer based on configuration."""
@@ -199,8 +220,9 @@ class VideoPlayer:
 
         if self.lyrics and self.config.lyrics_mode == "split":
             cols, _ = get_terminal_size()
-            lyrics_width = min(cols - self.config.width - 5, 50)
-            video_width = cols - lyrics_width - 5
+            available = max(1, cols - self.config.width - 5)
+            lyrics_width = max(1, min(available, 50))
+            video_width = max(1, cols - lyrics_width - 5)
             self.renderer = SplitRenderer(video_width, lyrics_width)
         elif self.lyrics and self.config.lyrics_mode == "fullscreen":
             self.renderer = FullscreenRenderer(self.config.width)
@@ -246,25 +268,47 @@ class VideoPlayer:
         """Re-anchor the playback clock to the current frame_num after seek/loop."""
         frame_interval = 1.0 / self.fps
         speed = self.controls.get_speed() if self.controls else 1.0
-        self.start_time = time.monotonic() - self._total_paused - (self.frame_num * frame_interval / speed)
+        reanchored = time.monotonic() - self._total_paused
+        self.start_time = reanchored - (self.frame_num * frame_interval / speed)
 
     def _playback_loop(self) -> None:
-        """Main playback loop."""
+        """Main playback loop.
+
+        ``start_time`` drives frame scheduling and is re-anchored on seeks,
+        while ``wall_start`` is set once here and used only for logging elapsed
+        time so it can never go negative after a backward seek.
+        """
         self.frame_num = 0
         self.skipped = 0
-        self.start_time = time.monotonic()
+        now = time.monotonic()
+        self.wall_start = now
+        self.start_time = now
         self._pause_start = 0.0
         self._total_paused = 0.0
+        self._was_paused = False
+        self._audio_resynced_this_iteration = False
+        self.premature_eof = False
         self.last_volume = self.controls.get_volume() if self.controls else 100
 
         # Clear screen
         print("\033[2J\033[H", end="", flush=True)
 
         while self.frame_num < self.total_frames:
+            self._audio_resynced_this_iteration = False
+
             if self._should_quit():
                 break
 
-            if self._is_paused():
+            paused = self._is_paused()
+            if paused != self._was_paused:
+                if paused:
+                    stop_audio(self.audio_process)
+                    self.audio_process = None
+                else:
+                    self._resync_audio()
+                self._was_paused = paused
+
+            if paused:
                 if self._pause_start == 0.0:
                     self._pause_start = time.monotonic()
                 time.sleep(0.1)
@@ -316,11 +360,15 @@ class VideoPlayer:
 
         seek = self.controls.get_seek()
         if seek != 0:
-            seek_frames = int(seek * self.fps)
-            self.frame_num = max(0, min(self.total_frames - 1, self.frame_num + seek_frames))
+            # Seek amounts are in seconds of video time, so use the video FPS
+            # (not the playback FPS) to convert them into frame numbers.
+            seek_frames = int(seek * self.video_fps)
+            upper = max(0, self.total_frames - 1)
+            self.frame_num = max(0, min(upper, self.frame_num + seek_frames))
             if self.cap:
                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.frame_num)
             self._reanchor_clock()
+            self._resync_audio()
             return True
         return False
 
@@ -335,11 +383,33 @@ class VideoPlayer:
 
         self.controls.set_current_time(current_time)
 
-        if self.audio_process:
-            new_volume = self.controls.get_volume()
-            if new_volume != self.last_volume:
-                self.last_volume = new_volume
-                self.audio_process = restart_audio(self.audio_process, self.audio_path, new_volume)
+        new_volume = self.controls.get_volume()
+        if self.audio_path and new_volume != self.last_volume:
+            self.last_volume = new_volume
+            self._resync_audio()
+
+    def _resync_audio(self) -> None:
+        """Stop and restart audio at the current video time.
+
+        Audio and video are resynced only on discrete events (seek, volume
+        change, A-B loop jump, pause/resume). Continuous drift between the two
+        is not corrected because ffplay is a separate process with no IPC
+        control channel here. At most one restart is performed per loop
+        iteration.
+
+        This restart also works when no audio process is running (e.g. after a
+        pause stopped it), so resuming can start playback at the right offset.
+        """
+        if not self.audio_path or self._audio_resynced_this_iteration:
+            return
+
+        volume = self.controls.get_volume() if self.controls else self.last_volume
+        current_time = max(0.0, self._get_current_time())
+        self.audio_process = restart_audio(
+            self.audio_process, self.audio_path, volume, current_time
+        )
+        self.last_volume = volume
+        self._audio_resynced_this_iteration = True
 
     def _handle_ab_loop(self, current_time: float) -> None:
         """Handle A-B loop functionality."""
@@ -349,10 +419,12 @@ class VideoPlayer:
         ab_lo, ab_hi = self.controls.ab_bounds()
         if ab_lo is not None and ab_hi is not None and self.controls.is_ab_loop_enabled():
             if current_time >= ab_hi:
-                self.frame_num = int(ab_lo * self.video_fps)
+                upper = max(0, self.total_frames - 1)
+                self.frame_num = max(0, min(upper, int(ab_lo * self.video_fps)))
                 if self.cap:
                     self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.frame_num)
                 self._reanchor_clock()
+                self._resync_audio()
 
     def _get_video_width(self) -> int:
         """Get the effective video width for ASCII conversion."""
@@ -362,7 +434,7 @@ class VideoPlayer:
 
     def _get_frame(self) -> Optional[Frame]:
         """Get the next frame as ASCII art.
-        
+
         Returns:
             ASCII frame or None if no more frames
         """
@@ -374,6 +446,13 @@ class VideoPlayer:
 
         ret, frame = self.cap.read()
         if not ret:
+            if self.frame_num < self.total_frames:
+                self.premature_eof = True
+                logger.warning(
+                    "Failed to decode frame {f}/{t}; stopping early",
+                    f=self.frame_num,
+                    t=self.total_frames,
+                )
             return None
 
         video_width = self._get_video_width()
@@ -450,9 +529,9 @@ class VideoPlayer:
             self.skipped += 1
 
     def _log_progress(self) -> None:
-        """Log playback progress periodically."""
+        """Log playback progress periodically using the monotonic wall clock."""
         if self.frame_num % 50 == 0:
-            elapsed = time.monotonic() - self.start_time
+            elapsed = time.monotonic() - self.wall_start if self.wall_start else 0.0
             actual_fps = self.frame_num / elapsed if elapsed > 0 else 0
             logger.debug(
                 "Frame {f}/{t} | {fps:.1f} actual FPS | {skip} skipped",
@@ -463,21 +542,27 @@ class VideoPlayer:
             )
 
     def _cleanup(self) -> None:
-        """Clean up resources."""
+        """Release all resources; safe after partial setup and repeated calls."""
         if self.controls:
             self.controls.stop()
+            self.controls = None
 
-        if self.cap:
+        if self.cap is not None:
             self.cap.release()
+            self.cap = None
 
         stop_audio(self.audio_process)
+        self.audio_process = None
         cleanup_audio(self.audio_path)
+        self.audio_path = None
 
         if self.frame_cache:
             self.frame_cache.save()
+            self.frame_cache = None
 
         if self.exporter:
             self._handle_export_cleanup()
+            self.exporter = None
 
         self._log_final_stats()
 
@@ -494,16 +579,22 @@ class VideoPlayer:
         self.exporter.cleanup()
 
     def _log_final_stats(self) -> None:
-        """Log final playback statistics."""
-        elapsed = time.monotonic() - self.start_time if self.start_time else 0.0
+        """Log final playback statistics (only if playback actually started)."""
+        if not self.start_time:
+            return
+        elapsed = time.monotonic() - self.wall_start if self.wall_start else 0.0
         actual_fps = self.frame_num / elapsed if elapsed > 0 else 0
+        warning = ""
+        if self.premature_eof:
+            warning = " | WARNING: video ended before the last frame (decode failure)"
         logger.info(
-            "Finished: {f}/{t} frames in {e:.1f}s ({fps:.1f} FPS, {s} skipped)",
+            "Finished: {f}/{t} frames in {e:.1f}s ({fps:.1f} FPS, {s} skipped){warn}",
             f=self.frame_num,
             t=self.total_frames,
             e=elapsed,
             fps=actual_fps,
             s=self.skipped,
+            warn=warning,
         )
         print(
             f"\n\033[1;32mDone. Played {self.frame_num}/{self.total_frames} "
@@ -534,7 +625,10 @@ def _build_plain_frame_lines(
     lines.extend(ascii_frame)
     lines.append(f"\033[1;36m{'=' * width}\033[0m")
 
-    status = f"Frame {frame_num + 1}/{total_frames} | {frame_num * frame_interval:.1f}s / {duration:.1f}s"
+    status = (
+        f"Frame {frame_num + 1}/{total_frames} | "
+        f"{frame_num * frame_interval:.1f}s / {duration:.1f}s"
+    )
 
     if controls:
         bar, status_line = controls.render_controls(width)
@@ -579,9 +673,9 @@ def play_video(
     visualizer: str = "none"
 ) -> None:
     """Play a video file as ASCII art in the terminal.
-    
+
     This is a legacy wrapper around VideoPlayer for backward compatibility.
-    
+
     Args:
         video_path: Path to video file
         width: ASCII output width in characters

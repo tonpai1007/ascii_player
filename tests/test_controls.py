@@ -1,7 +1,10 @@
 """Tests for ascii_player.controls - keyboard controls."""
 
+import sys
+import threading
 import time
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from ascii_player.controls import PlaybackControls
 
@@ -78,6 +81,82 @@ class TestPlaybackControls:
             pc._process_key(b"\x1b")
         assert pc.get_seek() == 5
         assert pc.get_seek() == 0
+
+    def test_escape_sequence_reads_one_byte_at_a_time(self, monkeypatch):
+        pc = PlaybackControls()
+        stdin = MagicMock()
+        stdin.read.side_effect = ["[", "C"]
+        monkeypatch.setattr("ascii_player.controls.sys.stdin", stdin)
+        monkeypatch.setattr(
+            "ascii_player.controls.select.select",
+            lambda *args, **kwargs: ([stdin], [], []),
+        )
+        pc._process_key(b"\x1b")
+        assert pc.get_seek() == 5
+        assert stdin.read.call_count == 2
+
+    def test_lone_escape_does_not_block_or_hold_lock(self, monkeypatch):
+        pc = PlaybackControls()
+        stdin = MagicMock()
+        monkeypatch.setattr("ascii_player.controls.sys.stdin", stdin)
+        monkeypatch.setattr(
+            "ascii_player.controls.select.select",
+            lambda *args, **kwargs: ([], [], []),
+        )
+        lock_acquired = threading.Event()
+
+        def acquire_lock():
+            with pc._lock:
+                lock_acquired.set()
+
+        thread = threading.Thread(target=acquire_lock, daemon=True)
+        thread.start()
+        started = time.monotonic()
+        pc._process_key(b"\x1b")
+        elapsed = time.monotonic() - started
+
+        assert lock_acquired.wait(timeout=0.5)
+        assert elapsed < 0.5
+        assert pc.get_seek() == 0
+        stdin.read.assert_not_called()
+
+    def test_stop_restores_terminal_settings(self, monkeypatch):
+        pc = PlaybackControls()
+        old_settings = object()
+        fake_termios = SimpleNamespace(
+            TCSADRAIN=2,
+            tcgetattr=MagicMock(return_value=old_settings),
+            tcsetattr=MagicMock(),
+        )
+        fake_tty = SimpleNamespace(setraw=MagicMock())
+        fake_stdin = MagicMock()
+        fake_stdin.fileno.return_value = 7
+        monkeypatch.setitem(sys.modules, "termios", fake_termios)
+        monkeypatch.setitem(sys.modules, "tty", fake_tty)
+        monkeypatch.setattr("ascii_player.controls.sys.stdin", fake_stdin)
+        monkeypatch.setattr(
+            "ascii_player.controls.select.select",
+            MagicMock(return_value=([], [], [])),
+        )
+
+        thread = threading.Thread(target=pc._unix_input, daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 1.0
+        while pc._termios_fd is None and time.monotonic() < deadline:
+            time.sleep(0.001)
+        assert pc._termios_fd == 7
+        assert fake_tty.setraw.call_count == 1
+
+        pc.stop()
+        thread.join(timeout=1)
+        assert not thread.is_alive()
+        fake_termios.tcsetattr.assert_called_with(
+            7, fake_termios.TCSADRAIN, old_settings
+        )
+        calls_after_stop = fake_termios.tcsetattr.call_count
+        pc.stop()
+        assert fake_termios.tcsetattr.call_count == calls_after_stop
+        assert pc._termios_fd is None
 
     def test_stop_sets_quit(self):
         pc = PlaybackControls()

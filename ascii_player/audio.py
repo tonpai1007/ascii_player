@@ -60,12 +60,13 @@ def extract_audio(video_path):
         return None
 
 
-def play_audio(audio_path, volume=100):
+def play_audio(audio_path, volume=100, start_time=0.0):
     """Play audio file using ffplay (non-blocking).
 
     Args:
         audio_path: Path to WAV file
         volume: Volume percentage (0-200)
+        start_time: Seek offset in seconds before starting playback
 
     Returns:
         subprocess.Popen process or None
@@ -74,16 +75,23 @@ def play_audio(audio_path, volume=100):
         return None
 
     try:
+        offset = f"{max(0.0, float(start_time)):.3f}"
         cmd = [
             "ffplay",
             "-nodisp",
             "-autoexit",
             "-loglevel", "quiet",
             "-volume", str(int(volume)),
+            "-ss", offset,
             audio_path
         ]
 
-        logger.debug("Playing audio: {path} at {vol}%", path=audio_path, vol=volume)
+        logger.debug(
+            "Playing audio: {path} at {vol}% from {offset}s",
+            path=audio_path,
+            vol=volume,
+            offset=offset,
+        )
         process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return process
 
@@ -95,19 +103,23 @@ def play_audio(audio_path, volume=100):
         return None
 
 
-def restart_audio(audio_process, audio_path, volume=100):
-    """Restart audio process with a new volume, cleaning up the old process.
+def restart_audio(audio_process, audio_path, volume=100, start_time=0.0):
+    """Restart audio with a new volume/offset, cleaning up the old process.
+
+    Callers passing only the original three arguments keep the old behaviour
+    (restart from the beginning of the file).
 
     Args:
         audio_process: Existing subprocess.Popen or None
         audio_path: Path to WAV file
         volume: New volume percentage (0-200)
+        start_time: Offset in seconds at which the new process should start
 
     Returns:
         New subprocess.Popen process or None
     """
     stop_audio(audio_process)
-    return play_audio(audio_path, volume)
+    return play_audio(audio_path, volume, start_time=start_time)
 
 
 def stop_audio(process):

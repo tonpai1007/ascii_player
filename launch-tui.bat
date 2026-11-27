@@ -1,4 +1,7 @@
 @echo off
+setlocal
+cd /d "%~dp0"
+set "PYTHONPATH=%~dp0;%PYTHONPATH%"
 title ASCII Video Player - TUI
 color 0A
 echo.

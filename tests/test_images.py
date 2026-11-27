@@ -2,31 +2,48 @@
 
 import io
 import os
+import socket
 import tempfile
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from ascii_player.images import (
     ANIMATIONS,
     IMAGE_EXT,
     RainAnimator,
+    ansi_to_content,
     clipboard_text,
     decode_lines,
     frame_count,
     grid_lines,
+    grid_to_content,
     grid_to_html,
+    grid_to_rich_text,
     image_to_grid,
     is_image_file,
     is_image_url,
     load_frames,
     load_image,
+    preprocess_image,
     render_preview_lines,
     save_clipboard_image,
     save_grid,
     still_lines,
+    text_to_grid,
     type_lines,
 )
+
+
+@pytest.fixture(autouse=True)
+def _public_dns(monkeypatch):
+    """Image URLs need DNS approval before the shared fetcher allows them."""
+
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
+
+    monkeypatch.setattr("ascii_player.url_loader.socket.getaddrinfo", fake_getaddrinfo)
 
 
 def test_is_image_file(tmp_path):
@@ -67,9 +84,16 @@ def test_load_image_url_mock(monkeypatch):
         def read(self):
             return data
 
-    monkeypatch.setattr("ascii_player.images.urllib.request.urlopen", lambda *a, **k: FakeResp())
+    monkeypatch.setattr(
+        "ascii_player.url_loader.urllib.request.urlopen", lambda *a, **k: FakeResp()
+    )
     img = load_image("https://example.com/x.png")
     assert img.size == (4, 4)
+
+
+def test_load_image_rejects_file_url():
+    with pytest.raises(ValueError, match="Unsafe or invalid URL"):
+        load_image("file:///etc/passwd")
 
 
 def test_image_to_grid_basic():
@@ -193,3 +217,178 @@ def test_clipboard_text_returns_none_or_str():
 def test_animations_constant():
     assert set(ANIMATIONS) == {"none", "decode", "type", "rain"}
     assert IMAGE_EXT and ".png" in IMAGE_EXT
+
+
+def test_preprocess_image_filters():
+    img = Image.new("RGB", (24, 16), (60, 120, 180))
+    modes = (
+        "none", "mirror", "invert", "emboss", "sharpen",
+        "contour", "posterize", "colorcycle", "edge",
+    )
+    for mode in modes:
+        out = preprocess_image(
+            img, contrast=1.3, brightness=1.1, filter_mode=mode, colorcycle_hue=32
+        )
+        assert out.size == (24, 16)
+        assert out.mode == "RGB"
+
+
+def test_image_to_grid_custom_charset():
+    img = Image.new("RGB", (12, 8), (128, 128, 128))
+    grid = image_to_grid(img, width=6, charset=" .#")
+    used = set("".join(grid_lines(grid, color=False)))
+    assert used <= set(" .#")
+
+
+def test_text_to_grid_and_rich_text():
+    grid = text_to_grid(["/\\_/\\", "( o.o )"])
+    assert grid.width == 7
+    assert grid.height == 2
+    mono = grid_to_rich_text(grid, color=False)
+    colored = grid_to_rich_text(grid, color=True)
+    assert "( o.o )" in mono.plain
+    assert len(colored.spans) >= 2
+
+
+def test_save_grid_png(tmp_path):
+    img = Image.new("RGB", (12, 8), (200, 100, 50))
+    grid = image_to_grid(img, width=6, preset="classic")
+    png = tmp_path / "out.png"
+    save_grid(grid, str(png), color=True)
+    assert png.is_file()
+    loaded = Image.open(png)
+    assert loaded.format == "PNG"
+    assert loaded.width > 20 and loaded.height > 20
+
+
+def test_grid_to_content_matches_rich_text():
+    """The fast native path must render identically to the old Rich path."""
+    from textual.content import Content
+
+    grid = text_to_grid(["/\\_/\\", "( o.o )"])
+    content = grid_to_content(grid, color=False)
+    assert isinstance(content, Content)
+    assert content.plain == grid_to_rich_text(grid, color=False).plain
+
+    colored = grid_to_content(grid, color=True)
+    assert colored.plain == grid_to_rich_text(grid, color=True).plain
+    assert len(colored.spans) >= 2
+
+
+def test_grid_to_content_run_lengths_and_cache():
+    """Adjacent identical colours collapse into one span, and styles are reused."""
+    rgb = np.array([[[10, 20, 30], [10, 20, 30], [1, 2, 3]]], dtype=np.uint8)
+    glyphs = np.array([["A", "B", "C"]], dtype="<U1")
+    from ascii_player.images import AsciiGrid
+
+    grid = AsciiGrid(glyphs=glyphs, rgb=rgb, width=3, height=1)
+    colored = grid_to_content(grid, color=True)
+    # "ABC" on one row -> 2 runs (two cells with the same colour, one different)
+    assert len(colored.spans) == 2
+    assert (colored.spans[0].start, colored.spans[0].end) == (0, 2)
+    assert (colored.spans[1].start, colored.spans[1].end) == (2, 3)
+    fg = colored.spans[0].style.foreground
+    assert (fg.r, fg.g, fg.b) == (10, 20, 30)
+
+
+def test_ansi_to_content_matches_rich_ansi():
+    """Native ANSI conversion must preserve text and foreground colours."""
+    from rich.text import Text as RichText
+    from textual.content import Content
+
+    from ascii_player.core import row_to_ansi
+
+    lines = [
+        row_to_ansi("ABCD", [(i, i * 2, i * 3)] * 4, color=True) for i in (0, 40, 200)
+    ]
+    joined = "\n".join(lines)
+    native = ansi_to_content(joined)
+    assert isinstance(native, Content)
+    assert native.plain == RichText.from_ansi(joined).plain
+    assert len(native.spans) == 3
+    for span, i in zip(native.spans, (0, 40, 200)):
+        fg = span.style.foreground
+        assert (fg.r, fg.g, fg.b) == (i, i * 2, i * 3)
+
+
+def test_halfblock_hd_render_and_exports(tmp_path):
+    """Halfblock preset uses 2x vertical TrueColor cells across Content/Rich/ANSI/HTML/PNG."""
+    img = Image.new("RGB", (8, 8))
+    arr = np.zeros((8, 8, 3), dtype=np.uint8)
+    arr[:4, :, :] = (255, 20, 30)
+    arr[4:, :, :] = (10, 40, 220)
+    img = Image.fromarray(arr, mode="RGB")
+
+    grid = image_to_grid(img, width=6, preset="halfblock", aspect=0.5)
+    assert grid.bg_rgb is not None
+    assert grid.bg_rgb.shape == (grid.height, grid.width, 3)
+
+    ansi_rows = grid_lines(grid, color=True)
+    assert any("48;2;" in row for row in ansi_rows)
+    mono_rows = grid_lines(grid, color=False)
+    assert len(mono_rows) == grid.height
+
+    content = grid_to_content(grid, color=True)
+    assert len(content.spans) > 0
+    assert content.spans[0].style.background is not None
+    ansi_roundtrip = ansi_to_content("\n".join(ansi_rows))
+    assert ansi_roundtrip.spans[0].style.background is not None
+
+    rich_txt = grid_to_rich_text(grid, color=True)
+    assert len(rich_txt.spans) > 0
+
+    html_doc = grid_to_html(grid)
+    assert "background-color:#" in html_doc
+
+    out_png = tmp_path / "halfblock.png"
+    save_grid(grid, str(out_png), color=True)
+    assert out_png.is_file()
+    loaded = Image.open(out_png)
+    assert loaded.format == "PNG"
+    assert loaded.width > 10 and loaded.height > 10
+
+
+def test_braille_hd_and_edge_art_presets():
+    """braille_hd produces Unicode Braille cells and edge_art emits directional strokes."""
+    arr = np.zeros((16, 16, 3), dtype=np.uint8)
+    arr[:, 8:, :] = 255
+    img = Image.fromarray(arr, mode="RGB")
+
+    b_grid = image_to_grid(img, width=8, preset="braille_hd", dither=True, invert=False)
+    braille_chars = [ch for row in b_grid.glyphs.tolist() for ch in row]
+    assert all(0x2800 <= ord(ch) <= 0x28FF for ch in braille_chars)
+
+    e_grid = image_to_grid(img, width=10, preset="edge_art")
+    edge_chars = {ch for row in e_grid.glyphs.tolist() for ch in row}
+    assert "|" in edge_chars
+
+    h_arr = np.zeros((16, 16, 3), dtype=np.uint8)
+    h_arr[8:, :, :] = 255
+    h_grid = image_to_grid(Image.fromarray(h_arr, mode="RGB"), width=10, preset="edge_art")
+    h_chars = {ch for row in h_grid.glyphs.tolist() for ch in row}
+    assert "-" in h_chars
+
+
+def test_stackable_post_fx_pipeline():
+    """All stackable POST_FX_MODES run cleanly individually and stacked together."""
+    from ascii_player.config import POST_FX_MODES
+    from ascii_player.images import apply_post_fx
+
+    arr = np.zeros((32, 32, 3), dtype=np.uint8)
+    arr[:, :16, :] = (220, 120, 40)
+    arr[:, 16:, :] = (40, 200, 230)
+    img = Image.fromarray(arr, mode="RGB")
+
+    for mode in POST_FX_MODES:
+        fx_img = apply_post_fx(img, [mode])
+        assert fx_img.size == img.size
+        assert fx_img.mode == "RGB"
+
+    stacked_grid = image_to_grid(
+        img, width=16, preset="classic", post_fx=POST_FX_MODES
+    )
+    assert stacked_grid.width == 16
+    assert stacked_grid.height >= 1
+    assert not np.array_equal(stacked_grid.rgb[0], stacked_grid.rgb[1])
+
+

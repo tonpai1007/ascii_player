@@ -1,26 +1,33 @@
 """YouTube video download functionality."""
 
 import os
-import re
 import shutil
 import subprocess
 import tempfile
 
 from loguru import logger
 
-from .config import YOUTUBE_MAX_HEIGHT, YOUTUBE_REGEX, YOUTUBE_TIMEOUT
+from .config import YOUTUBE_MAX_HEIGHT, YOUTUBE_TIMEOUT, is_safe_youtube_url
 
 
 def is_youtube_url(url):
-    """Check if a URL is a YouTube link.
+    """Check if a URL is a YouTube link (exact hosts only).
+
+    The old regex matched prefixes such as ``youtube.com.evil.com`` and
+    handed them to yt-dlp. Scheme-less links are normalized before checking.
 
     Args:
         url: String to check
 
     Returns:
-        True if URL matches YouTube pattern
+        True if the URL points at a recognized YouTube host
     """
-    return re.match(YOUTUBE_REGEX, url) is not None
+    if is_safe_youtube_url(url):
+        return True
+    text = str(url or "").strip()
+    if "://" in text:
+        return False
+    return is_safe_youtube_url("https://" + text)
 
 
 def download_youtube_video(url):

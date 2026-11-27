@@ -1,45 +1,131 @@
 Screen {
+    layout: vertical;
+    background: $background;
+    color: $foreground;
+}
+
+/* Minimalist 1-line OpenCode / Claude Code Top Bar */
+StudioTopBar {
+    height: 1;
+    width: 100%;
+    background: $surface;
+    padding: 0 1;
+}
+
+#topbar-row {
+    height: 1;
+    width: 100%;
+}
+
+#brand-mark {
+    width: auto;
+    height: 1;
+    color: $accent;
+    text-style: bold;
+    padding-right: 1;
+}
+
+.mode-tab {
+    height: 1;
+    min-width: 7;
+    margin-right: 1;
+    background: transparent;
+    color: $text-muted;
+    border: none;
+    padding: 0 1;
+}
+
+.mode-tab:hover {
+    background: $panel;
+    color: $foreground;
+}
+
+.mode-tab.active {
+    background: $panel;
+    color: $accent;
+    text-style: bold;
+}
+
+#canvas-meta {
+    width: 1fr;
+    height: 1;
+    color: $text-muted;
+    padding: 0 1;
+    text-wrap: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chip {
+    height: 1;
+    min-width: 4;
+    margin-left: 1;
+    background: transparent;
+    color: $text-muted;
+    border: none;
+    padding: 0 1;
+}
+
+.chip:hover {
+    background: $panel;
+    color: $foreground;
+}
+
+.chip.active {
+    color: $accent;
+    text-style: bold;
+}
+
+.accent-chip {
+    color: $accent;
+    text-style: bold;
+}
+
+/* Workspace */
+#workspace {
     layout: horizontal;
+    height: 1fr;
+    width: 100%;
 }
 
+/* On-demand Left Source Drawer (hidden by default) */
 #sidebar {
-    width: 40%;
+    display: none;
+    width: 34;
+    min-width: 28;
+    max-width: 38;
     height: 100%;
-    min-width: 44;
-    border: tall $primary;
-    padding: 1;
+    background: $surface;
+    border-right: solid $primary;
+    padding: 0 1;
 }
 
-#main {
-    width: 60%;
-    height: 100%;
-    padding: 1 1 1 0;
+#sidebar.open {
+    display: block;
+}
+
+#source-tabs {
+    height: 1fr;
+}
+
+#source-tabs > Tabs {
+    height: 2;
+}
+
+#source-tabs TabPane {
+    padding: 1 0 0 0;
+    height: 1fr;
 }
 
 .section-title {
     text-style: bold;
     color: $accent;
-    margin-bottom: 1;
+    height: 1;
+    margin-bottom: 0;
 }
 
-.url-bar {
-    dock: top;
-    height: auto;
-    padding: 0 1;
-    margin-bottom: 1;
-}
-
-.url-input {
-    width: 1fr;
-    margin-right: 1;
-}
-
-.play-url-btn {
-    min-width: 14;
-}
-
-/* File browser */
 .dir-input-row {
+    height: 1;
     margin-bottom: 1;
 }
 
@@ -47,9 +133,19 @@ Screen {
     width: 1fr;
 }
 
+#current-dir {
+    text-style: bold;
+    color: $accent;
+    height: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 #file-list {
     height: 1fr;
-    border: round $primary-darken-1;
+    min-height: 6;
+    border: round $primary;
+    background: $background;
     margin-bottom: 1;
 }
 
@@ -62,7 +158,7 @@ Screen {
 }
 
 .file-item.video {
-    color: $text;
+    color: $foreground;
 }
 
 .file-item.lyrics {
@@ -71,40 +167,130 @@ Screen {
 
 ListItem.selected {
     background: $accent;
-    color: $text;
+    color: $foreground;
 }
 
-ListItem.selected .file-item {
-    color: $text;
-    text-style: bold;
+ListItem:hover {
+    background: $panel;
 }
 
-#current-dir {
+.browser-buttons {
+    height: 1;
+    margin-bottom: 1;
+}
+
+.browser-buttons Button {
+    min-width: 6;
+    margin-right: 1;
+}
+
+#selected-file {
     text-style: bold;
-    color: $accent;
+    color: $success;
+    height: 1;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.browser-buttons {
+/* Prompt tab */
+#prompt-input {
     margin-top: 1;
+    margin-bottom: 1;
 }
 
-.browser-buttons Button {
-    min-width: 9;
+.compact-row {
+    height: 1;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+.compact-label {
+    width: 8;
+    height: 1;
+    color: $text-muted;
+}
+
+.compact-control {
+    width: 1fr;
+}
+
+.action-row {
+    height: 1;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+.action-row Button {
+    min-width: 8;
     margin-right: 1;
 }
 
-/* Recent */
-#recent-title {
-    text-style: bold;
+#prompt-status {
+    height: auto;
+    color: $accent;
+    margin-bottom: 1;
+}
+
+#prompt-presets {
+    height: 1fr;
+    min-height: 5;
+    border: round $primary;
+    background: $background;
+}
+
+/* URL tab */
+#url-input {
+    width: 100%;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#url-info {
+    height: auto;
     color: $text-muted;
     margin-top: 1;
 }
 
-#recent-list {
-    height: 6;
-    border: hkey none;
+/* Webcam tab */
+#cam-stats {
+    height: auto;
+    color: $accent;
+    margin-top: 1;
+}
+
+.cam-buttons {
+    height: auto;
+    margin-top: 1;
+}
+
+.cam-buttons Button {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+/* Library collapsible drawer */
+#drawer-library {
+    height: auto;
+    max-height: 16;
+    border-top: solid $primary;
+    padding: 0;
+    margin-top: 0;
+}
+
+#drawer-library Contents {
+    padding: 0;
+}
+
+#recent-title, #playlist-title {
+    text-style: bold;
+    color: $text-muted;
+    height: 1;
+}
+
+#recent-list, #playlist-list {
+    height: 4;
+    border: round $primary;
+    background: $background;
 }
 
 .recent-item {
@@ -112,175 +298,648 @@ ListItem.selected .file-item {
     color: $text-muted;
 }
 
-ListItem:hover {
-    background: $primary-darken-2;
+.playlist-buttons {
+    height: 1;
+    margin-top: 0;
 }
 
-/* Selected file */
-#selected-file {
-    text-style: bold;
-    color: $success;
-    margin: 1 0;
+.playlist-buttons Button {
+    min-width: 6;
+    margin-right: 1;
+}
+
+/* Center Canvas-First Main Area */
+#main {
+    width: 1fr;
+    height: 100%;
+    layout: vertical;
+    background: $background;
+}
+
+#stage {
+    height: 1fr;
+    width: 100%;
+    layout: vertical;
     padding: 0 1;
-    min-height: 1;
+}
+
+#stage.hidden {
+    display: none;
+}
+
+/* Perfectly Centered Welcome Hero */
+WelcomeHero {
+    height: 1fr;
+    width: 100%;
+    align: center middle;
+}
+
+WelcomeHero.hidden {
+    display: none;
+}
+
+#welcome-inner {
+    width: 1fr;
+    max-width: 84;
+    padding: 0 1;
+    height: auto;
+    align: center middle;
+}
+
+#welcome-logo {
+    width: 100%;
+    content-align: center middle;
+    text-align: center;
+}
+
+#welcome-tagline {
+    width: 100%;
+    text-align: center;
+    color: $text-muted;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#welcome-guide {
+    width: 1fr;
+    max-width: 72;
+    height: auto;
+    background: $surface;
+    border-left: thick $primary;
+    padding: 1 2;
+    margin: 0 2 1 2;
+}
+
+#welcome-tips {
+    color: $foreground;
+}
+
+#welcome-starters {
+    width: 100%;
+    height: 1;
+    align: center middle;
+}
+
+.starter-chip {
+    height: 1;
+    min-width: 8;
+    margin: 0 1;
+    background: $surface;
+    color: $text-muted;
+    border: none;
+    padding: 0 1;
+}
+
+.starter-chip:hover {
+    background: $panel;
+    color: $accent;
+}
+
+/* Full-Bleed Borderless ASCII Canvas */
+InlinePreview {
+    height: 1fr;
+    width: 100%;
+    border: none;
+    background: $background;
+}
+
+InlinePreview.hidden {
+    display: none;
+}
+
+#art-bar {
+    height: 1;
+    width: 100%;
+    padding: 0 1;
+}
+
+#art-bar-spacer {
+    width: 1fr;
+}
+
+#canvas-scroll {
+    height: 1fr;
+    width: 100%;
+    align: center middle;
+    overflow: auto auto;
+}
+
+#preview-body {
+    width: auto;
+    height: auto;
+    padding: 0 1;
+    color: $foreground;
+}
+
+/* OpenCode Left-Accent Elevated Omnibox Card */
+OmniboxBar {
+    height: auto;
+    width: 100%;
+    padding: 0 3;
+    margin-bottom: 1;
+    background: $background;
+}
+
+OmniboxBar.hidden {
+    display: none;
+}
+
+#omnibox-shell {
+    height: auto;
+    width: 100%;
+}
+
+#activity-line {
+    height: 1;
+    color: $accent;
+    padding: 0 1;
+}
+
+#activity-line.error {
+    color: $error;
+    text-style: bold;
+}
+
+#autocomplete-box {
+    display: none;
+    height: auto;
+    max-height: 11;
+    border: round $accent;
+    background: $surface;
+    margin-bottom: 0;
+}
+
+#autocomplete-box.visible {
+    display: block;
+}
+
+#autocomplete-popup {
+    display: none;
+    height: auto;
+    max-height: 8;
+    border: none;
+    background: $surface;
+}
+
+#autocomplete-popup.visible {
+    display: block;
+}
+
+#autocomplete-hint {
+    height: 1;
+    color: $text-muted;
+    background: $panel;
+    padding: 0 1;
+}
+
+#omnibox-wrap {
+    height: 4;
+    width: 100%;
+    background: $surface;
+    border-left: thick $primary;
+    padding: 1 2 0 2;
+}
+
+#omnibox-wrap:focus-within {
+    border-left: thick $accent;
+}
+
+#omnibox-input-row {
+    height: 1;
+    width: 100%;
+}
+
+#omnibox-caret {
+    width: 2;
+    height: 1;
+    color: $accent;
+    text-style: bold;
+}
+
+#omnibox {
+    width: 1fr;
+    height: 1;
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+#omnibox-meta {
+    height: 1;
+    width: 100%;
+    margin-top: 1;
+    color: $text-muted;
+}
+
+#omnibox-pills {
+    width: 1fr;
+    height: 1;
+    color: $text-muted;
+    text-wrap: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-/* Settings */
-.settings-inner {
+/* Pure-Typing Terminal ASCII Art Tab */
+DrawWorkspace {
+    height: 1fr;
+    width: 100%;
+    layout: vertical;
+    background: $background;
+}
+
+DrawWorkspace.hidden {
+    display: none;
+}
+
+#draw-shell {
+    height: 1fr;
+    width: 100%;
+}
+
+#draw-toolbar-top {
+    height: 1;
+    width: 100%;
+    background: $surface;
+    padding: 0 1;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-size-horizontal: 0;
+}
+
+.draw-btn {
+    height: 1;
+    width: auto;
+    min-width: 1;
+    margin-right: 1;
+    background: transparent;
+    color: $text-muted;
+    border: none;
+    padding: 0;
+}
+
+.draw-btn:hover {
+    background: $panel;
+    color: $foreground;
+}
+
+.draw-btn.active {
+    background: $primary;
+    color: $accent;
+    text-style: bold;
+}
+
+.swatch-btn {
+    height: 1;
+    width: 3;
+    min-width: 3;
+    margin-right: 0;
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+.swatch-btn.active {
+    background: $foreground;
+}
+
+#draw-scroll {
+    height: 1fr;
+    width: 100%;
+    align: center middle;
+    padding: 1;
+}
+
+#draw-frame {
+    width: auto;
+    height: auto;
+    border: round $primary;
+    background: $background;
+}
+
+#draw-frame:focus-within {
+    border: round $accent;
+}
+
+#draw-canvas {
+    border: none;
+    padding: 0;
+}
+
+#draw-status {
+    height: 1;
+    width: 100%;
+    background: $surface;
+    color: $text-muted;
+    padding: 0 2;
+    text-wrap: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Collapsible Log Drawer */
+#log-drawer {
+    display: none;
+    height: 8;
+    border-top: solid $primary;
+    background: $surface;
+}
+
+#log-drawer.visible {
+    display: block;
+}
+
+#log {
+    height: 1fr;
+    border: none;
+    background: $surface;
+}
+
+/* On-demand Right Style Inspector Drawer (hidden by default) */
+#inspector {
+    display: none;
+    width: 34;
+    min-width: 32;
+    max-width: 38;
+    height: 100%;
+    background: $surface;
+    border-left: solid $primary;
+    padding: 0 1;
+}
+
+#inspector.open {
+    display: block;
+}
+
+.group-title {
+    color: $accent;
+    text-style: bold;
+    height: 1;
     margin-top: 1;
+    margin-bottom: 0;
 }
 
 .setting-row {
-    height: auto;
+    height: 1;
+    width: 100%;
     margin-bottom: 0;
 }
 
 .setting-label {
-    width: 9;
+    width: 10;
+    height: 1;
     color: $text-muted;
 }
 
 .setting-input {
     width: 1fr;
+    background: $panel;
 }
 
 .setting-select {
     width: 1fr;
 }
 
-/* Command preview */
+.toggle-row {
+    height: 1;
+    width: 100%;
+}
+
+.toggle-row Checkbox {
+    width: 100%;
+}
+
+.toggle-grid {
+    height: 1;
+    width: 100%;
+}
+
+.toggle-grid Checkbox {
+    width: 1fr;
+}
+
 #cmd-preview {
+    height: auto;
+    max-height: 3;
     color: $text-muted;
-    border: none;
-    padding: 0;
-    margin-top: 0;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-/* Inline preview */
-.preview-inner {
-    height: auto;
+.inspector-actions {
+    height: 1;
+    width: 100%;
+    margin-top: 1;
+    margin-bottom: 1;
 }
 
-#preview-body {
-    max-height: 16;
-    border: round $primary-darken-1;
-    padding: 0 1 1 1;
-    overflow-y: auto;
-    color: $text;
-    content-align: center middle;
+.inspector-actions Button {
+    min-width: 7;
+    margin-right: 1;
+}
+
+/* Single Clean Bottom Status Bar (Textual Footer hidden visually) */
+StatusBar {
+    height: 1;
+    width: 100%;
+    background: $surface;
+    color: $text-muted;
+    padding: 0 2;
 }
 
 #status-bar {
-    dock: bottom;
     height: 1;
-    background: $surface-darken-1;
-    padding: 0 1;
+    width: 100%;
 }
 
 #status-text {
     width: 1fr;
+    height: 1;
+    text-wrap: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 #key-hints {
+    width: auto;
+    height: 1;
     color: $text-muted;
     padding-right: 2;
 }
 
 #version-text {
+    width: auto;
+    height: 1;
     color: $text-muted;
 }
 
-.controls {
-    dock: bottom;
-    height: 3;
-    padding: 1 0;
+Footer {
+    display: none;
+}
+
+/* Modals */
+HelpScreen, ExportScreen, FilePickerScreen, CommandPaletteScreen {
+    align: center middle;
+}
+
+#palette-dialog {
+    width: 68;
+    height: auto;
+    max-height: 24;
+    border: round $accent;
+    background: $surface;
+    padding: 1 2;
+}
+
+#palette-title {
+    text-style: bold;
+    color: $accent;
+    height: 1;
     margin-bottom: 1;
 }
 
-#btn-play {
-    background: $success;
-    color: $text;
-    min-width: 14;
+#palette-search {
+    margin-bottom: 1;
 }
 
-#btn-play:hover {
-    background: $success-darken-1;
+#palette-list {
+    height: auto;
+    max-height: 15;
+    border: round $primary;
+    background: $background;
 }
 
-#btn-webcam {
-    background: $warning;
-    color: $text;
-    min-width: 14;
-}
-
-#btn-webcam:hover {
-    background: $warning-darken-1;
-}
-
-#btn-play-url {
-    background: $accent;
-    color: $text;
-    min-width: 14;
-}
-
-#btn-play-url:hover {
-    background: $accent-darken-1;
-}
-
-RichLog {
-    height: 1fr;
-    border: tall $primary;
-}
-
-PlaylistPanel {
-    border: tall $primary;
-    padding: 1;
-}
-
-#playlist-list {
-    height: 8;
-    border: round $primary-darken-1;
-}
-
-.playlist-buttons {
-    height: 3;
-}
-
-.playlist-buttons Button {
-    margin: 0 1;
+#palette-hint {
+    color: $text-muted;
+    height: 1;
+    margin-top: 1;
 }
 
 #help-dialog {
-    width: 50;
-    height: auto;
+    width: 64;
+    height: 1fr;
+    max-height: 100%;
     border: round $accent;
     background: $surface;
-    padding: 1;
-    align: center middle;
+    padding: 1 2;
 }
 
 #help-title {
     text-style: bold;
     color: $accent;
     text-align: center;
+    height: 1;
+    margin-bottom: 1;
+}
+
+#help-body-scroll {
+    height: 1fr;
+    max-height: 100%;
 }
 
 #help-body {
     text-align: left;
-    padding: 0 2;
+}
+
+#help-hint {
+    color: $text-muted;
+    height: 1;
+    margin-top: 1;
+}
+
+#export-dialog {
+    width: 54;
+    height: auto;
+    border: round $accent;
+    background: $surface;
+    padding: 1 2;
+}
+
+#export-title {
+    text-style: bold;
+    color: $accent;
+    text-align: center;
+    margin-bottom: 1;
+}
+
+.modal-buttons {
+    height: 1;
+    margin-top: 1;
+    align: right middle;
+}
+
+.modal-buttons Button {
+    margin-left: 1;
 }
 
 #picker-container {
     width: 80;
-    height: 20;
+    height: 22;
     border: round $accent;
     background: $surface;
+    padding: 1;
+}
+
+#picker-title {
+    color: $accent;
+    text-style: bold;
+    height: 1;
+    margin-bottom: 1;
 }
 
 #picker-tree {
     height: 1fr;
+}
+
+/* Narrow Terminal Responsive Rules (< 96 cols or <= 26 rows, e.g. 80x24) */
+Screen.narrow #btn-toggle-files,
+Screen.narrow #btn-toggle-style {
+    display: none;
+}
+
+Screen.narrow #welcome-tagline {
+    margin: 0;
+}
+
+Screen.narrow #welcome-guide {
+    margin: 0 1 0 1;
+    padding: 0 1;
+}
+
+Screen.narrow #btn-hero-2,
+Screen.narrow #btn-hero-4 {
+    display: none;
+}
+
+Screen.narrow OmniboxBar {
+    padding: 0 1;
+    margin-bottom: 0;
+}
+
+Screen.narrow #omnibox-wrap {
+    height: 3;
+    padding: 0 1;
+}
+
+Screen.narrow #omnibox-meta {
+    margin-top: 0;
+}
+
+Screen.narrow #inspector {
+    width: 34;
+    min-width: 32;
+}
+
+Screen.narrow #sidebar {
+    width: 30;
+    min-width: 26;
+}
+
+Screen.narrow #draw-scroll {
+    padding: 0;
+}
+
+Screen.narrow #dt-grid,
+Screen.narrow #dt-trace {
+    display: none;
 }

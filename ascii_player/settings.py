@@ -87,7 +87,16 @@ def merge_args_with_config(args, config):
         merged["audio"] = False
     if getattr(args, "preset", None):
         merged["preset"] = args.preset
-    if getattr(args, "visualizer", "none") != "none":
-        merged["visualizer"] = args.visualizer
+
+    # The CLI visualizer defaults to "none", which means "not specified": a
+    # value from the config file must survive in that case (and the key should
+    # always be present so callers never see None).
+    cli_visualizer = getattr(args, "visualizer", "none")
+    if cli_visualizer and cli_visualizer != "none":
+        merged["visualizer"] = cli_visualizer
+    elif "visualizer" in config:
+        merged["visualizer"] = config["visualizer"]
+    else:
+        merged["visualizer"] = "none"
 
     return merged

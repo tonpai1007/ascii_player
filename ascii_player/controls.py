@@ -1,5 +1,6 @@
 """Keyboard controls for video playback with Command pattern."""
 
+import select
 import sys
 import threading
 import time
@@ -118,6 +119,9 @@ class SeekCommand(Command):
 class PlaybackControls:
     """Handle keyboard input for playback control using Command pattern."""
 
+    # Poll interval for both the Unix input loop and escape-sequence reads.
+    _SELECT_TIMEOUT = 0.05
+
     def __init__(self) -> None:
         self.paused: bool = False
         self.speed: float = 1.0
@@ -132,6 +136,9 @@ class PlaybackControls:
         self._snap_flags: int = 0
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._old_settings = None
+        self._termios_fd: Optional[int] = None
 
         # Command mappings
         self._key_commands: Dict[str, Command] = {
@@ -150,6 +157,7 @@ class PlaybackControls:
 
     def start(self) -> None:
         """Start listening for keyboard input."""
+        self._stop_event.clear()
         if sys.platform == "win32":
             self._thread = threading.Thread(target=self._windows_input, daemon=True)
         else:
@@ -157,11 +165,32 @@ class PlaybackControls:
         self._thread.start()
 
     def stop(self) -> None:
-        """Stop listening."""
+        """Stop listening and restore the terminal synchronously."""
         with self._lock:
             self.quit = True
+        self._stop_event.set()
+        # Restore before joining: a thread blocked in read() may not return,
+        # but the caller's shell must not be left in raw mode.
+        self._restore_terminal()
         if self._thread:
             self._thread.join(timeout=1)
+
+    def _restore_terminal(self) -> None:
+        """Restore saved terminal settings. Safe to call repeatedly."""
+        fd = self._termios_fd
+        settings = self._old_settings
+        self._termios_fd = None
+        self._old_settings = None
+        if fd is None or settings is None:
+            return
+        try:
+            import termios
+        except ImportError:
+            return
+        try:
+            termios.tcsetattr(fd, termios.TCSADRAIN, settings)
+        except Exception as e:
+            logger.debug("Could not restore terminal settings: {err}", err=str(e))
 
     def _windows_input(self) -> None:
         """Handle input on Windows."""
@@ -190,29 +219,57 @@ class PlaybackControls:
                 SeekCommand(self, -5).execute()
 
     def _unix_input(self) -> None:
-        """Handle input on Unix."""
+        """Handle input on Unix, polling stdin instead of spinning on it."""
         try:
             import termios
             import tty
 
             fd = sys.stdin.fileno()
             old_settings = termios.tcgetattr(fd)
-
-            try:
-                tty.setraw(fd)
-                while not self.quit:
-                    if sys.stdin.readable():
-                        char = sys.stdin.read(1)
-                        if char:
-                            self._process_key(char.encode())
-            finally:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            tty.setraw(fd)
         except Exception as e:
             logger.warning("Unix input error: {err}", err=str(e))
+            return
+
+        self._old_settings = old_settings
+        self._termios_fd = fd
+
+        try:
+            while not self.quit and not self._stop_event.is_set():
+                if not self._stdin_ready(self._SELECT_TIMEOUT):
+                    continue
+                try:
+                    char = sys.stdin.read(1)
+                except Exception as e:
+                    logger.warning("Unix input read error: {err}", err=str(e))
+                    break
+                if char:
+                    self._process_key(char.encode())
+        except Exception as e:
+            logger.warning("Unix input error: {err}", err=str(e))
+        finally:
+            self._restore_terminal()
+
+    def _stdin_ready(self, timeout: float) -> bool:
+        """Return True if stdin has bytes available, without blocking."""
+        try:
+            ready, _, _ = select.select([sys.stdin], [], [], timeout)
+            return bool(ready)
+        except Exception as e:
+            logger.debug("stdin readiness check unavailable: {err}", err=str(e))
+            # A stream without a real fd (e.g. a test double) cannot be
+            # selected on; fall back to readable() only in that case.
+            try:
+                fd = sys.stdin.fileno()
+            except Exception:
+                return False
+            if isinstance(fd, int) and fd >= 0:
+                return False
+            return bool(getattr(sys.stdin, "readable", lambda: False)())
 
     def _process_key(self, key: bytes) -> None:
         """Process a key press using Command pattern.
-        
+
         Args:
             key: Key bytes
         """
@@ -220,17 +277,32 @@ class PlaybackControls:
             if isinstance(key, bytes):
                 key = key.decode("utf-8", errors="ignore")
 
-            # Check for regular key commands
-            command = self._key_commands.get(key)
-            if command:
-                command.execute()
-            elif key == "\x1b":
-                self._handle_escape_sequence()
+            if key != "\x1b":
+                command = self._key_commands.get(key)
+                if command:
+                    command.execute()
+                return
+
+        # ESC is a prefix for arrow keys. Read the rest outside the lock so
+        # a lone ESC can never block the main thread's getters.
+        self._handle_escape_sequence()
 
     def _handle_escape_sequence(self) -> None:
-        """Handle escape sequences (arrow keys)."""
-        if sys.stdin.readable():
-            seq = sys.stdin.read(2)
+        """Handle escape sequences (arrow keys) without blocking on lone ESC."""
+        seq = ""
+        while len(seq) < 2:
+            if not self._stdin_ready(self._SELECT_TIMEOUT):
+                break
+            try:
+                chunk = sys.stdin.read(1)
+            except Exception as e:
+                logger.debug("Escape sequence read failed: {err}", err=str(e))
+                break
+            if not chunk:
+                break
+            seq += chunk
+
+        with self._lock:
             if seq == "[C":
                 SeekCommand(self, 5).execute()
             elif seq == "[D":

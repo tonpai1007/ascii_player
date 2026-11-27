@@ -1,5 +1,6 @@
 """Export ASCII frames to GIF or MP4."""
 
+import math
 import os
 import re
 import shutil
@@ -42,11 +43,25 @@ class ASCIIExporter:
         if not PIL_AVAILABLE:
             raise ImportError("Pillow is required for export. Install it: pip install Pillow")
         self.width = width
+        # Keep the caller's fps as-is (fractional values included); truncating
+        # it here used to make 0.5 fps render at 0 fps and crash on division.
         self.fps = fps
         self.frames = []
         self.temp_dir = tempfile.mkdtemp()
         self.lyrics = None
         self._font = _load_mono_font()
+
+    def _frame_duration_ms(self) -> int:
+        """Per-frame duration in milliseconds, safe for fractional/low fps."""
+        fps = self.fps
+        if (
+            isinstance(fps, bool)
+            or not isinstance(fps, (int, float))
+            or not math.isfinite(fps)
+            or fps <= 0
+        ):
+            raise ValueError(f"Invalid export FPS: {fps!r} (must be a finite number > 0)")
+        return max(1, int(round(1000.0 / float(fps))))
 
     def set_lyrics(self, lyrics):
         """Set lyrics for burn-in during export.
@@ -142,7 +157,7 @@ class ASCIIExporter:
         self.frames.sort(key=lambda x: x[0])
         images = [f[1] for f in self.frames]
 
-        duration = int(1000 / self.fps)
+        duration = self._frame_duration_ms()
 
         try:
             images[0].save(

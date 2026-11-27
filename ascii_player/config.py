@@ -1,7 +1,9 @@
 """Configuration and constants for ASCII Video Player."""
 
+import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 COLOR_RESET = "\033[0m"
 
@@ -14,7 +16,35 @@ ASCII_PRESETS = {
     "detailed": " .'`^\",:;Il!i><~+_-?][}{1)(|/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$",
     "unicode": " ▁▂▃▄▅▆▇█",
     "braille": " ⠁⠂⠃⠄⠅⠆⠇⠈⠉⠊⠋⠌⠍⠎⠏⠐⠑⠒⠓⠔⠕⠖⠗⠘⠙⠚⠛⠜⠝⠞⠟⠠⠡⠢⠣⠤⠥⠦⠧⠨⠩⠪⠫⠬⠭⠮⠯⠰⠱⠲⠳⠴⠵⠶⠷⠸⠹⠺⠻⠼⠽⠾⠿",
+    "matrix": " .,:;01#$@",
+    "hatch": " .-/\\|+xX#@",
+    "halfblock": " ▀▄█",
+    "braille_hd": " ⠁⠃⠇⠏⠟⠿⣿",
+    "edge_art": " .-:/\\|+xX#@",
 }
+
+FILTER_MODES = (
+    "none",
+    "edge",
+    "invert",
+    "mirror",
+    "emboss",
+    "sharpen",
+    "contour",
+    "posterize",
+    "colorcycle",
+)
+
+POST_FX_MODES = (
+    "scanlines",
+    "chromatic",
+    "vignette",
+    "bloom",
+    "halftone",
+    "glitch",
+)
+
+PROMPT_ENGINES = ("auto", "ai", "web", "ollama", "banner", "procedural")
 
 DEFAULT_PRESET = "classic"
 DEFAULT_WIDTH = 80
@@ -28,8 +58,30 @@ LOG_ROTATION = "5 MB"
 LOG_RETENTION = "7 days"
 
 YOUTUBE_REGEX = r'(https?://)?(www\.|m\.)?(youtube\.com|youtu\.be|youtube\.com/watch\?v=|youtube\.com/shorts/)'
+YOUTUBE_HOSTS = frozenset(
+    {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be"}
+)
 YOUTUBE_MAX_HEIGHT = 720
 YOUTUBE_TIMEOUT = 300
+
+EXPORT_FORMATS = ("gif", "mp4", "txt", "ans", "html", "png")
+LYRICS_MODES = ("split", "fullscreen", "none")
+VISUALIZER_MODES = ("none", "bars", "wave")
+
+
+def is_safe_youtube_url(url: Any) -> bool:
+    """Return True only for exact YouTube hostnames (never suffix/prefix lookalikes).
+
+    ``YOUTUBE_REGEX`` matches prefixes such as ``youtube.com.evil.com``; use this
+    helper for any security-relevant host decision.
+    """
+    try:
+        parsed = urlparse(str(url or "").strip())
+    except (TypeError, ValueError):
+        return False
+    if parsed.scheme.lower() not in ("http", "https"):
+        return False
+    return parsed.netloc.lower() in YOUTUBE_HOSTS
 
 CONFIG_FILE = "ascii_player.yaml"
 DEFAULT_CONFIG: Dict[str, Any] = {
@@ -44,14 +96,14 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 @dataclass
 class PlayerConfig:
     """Configuration for video playback.
-    
+
     Attributes:
         width: ASCII output width in characters
         color: Enable ANSI truecolor output
         preset: ASCII character preset name
         audio: Enable audio playback
         fps: Playback FPS (None for auto)
-        export: Export format (None, "gif", "mp4")
+        export: Export format (None or one of EXPORT_FORMATS)
         export_output: Output file path for export
         lyrics_path: Path to lyrics file
         lyrics_mode: Lyrics display mode ("split", "fullscreen", "none")
@@ -107,18 +159,53 @@ class PlayerConfig:
         Raises:
             ValueError: If any configuration value is invalid
         """
-        if self.width <= 0:
-            raise ValueError("Width must be positive")
+        # Width is used as a divisor and allocation size downstream; require a
+        # real integer so bad YAML/CLI input cannot produce a blank frame or a
+        # ZeroDivisionError.
+        if isinstance(self.width, bool) or not isinstance(self.width, int) or self.width < 1:
+            raise ValueError(f"Width must be an integer >= 1, got {self.width!r}")
+
+        # FPS is used as a divisor when exporting; NaN/inf/zero would crash or
+        # generate unusable output.
+        if self.fps is not None:
+            if (
+                isinstance(self.fps, bool)
+                or not isinstance(self.fps, (int, float))
+                or not math.isfinite(self.fps)
+                or self.fps <= 0
+            ):
+                raise ValueError(
+                    f"FPS must be a finite number > 0 (or None), got {self.fps!r}"
+                )
+
         if self.preset not in ASCII_PRESETS:
-            raise ValueError(f"Unknown preset: {self.preset}")
-        if self.export and self.export not in ("gif", "mp4"):
-            raise ValueError(f"Unsupported export format: {self.export}")
-        if self.lyrics_mode not in ("split", "fullscreen", "none"):
-            raise ValueError(f"Invalid lyrics mode: {self.lyrics_mode}")
-        if self.fps is not None and self.fps <= 0:
-            raise ValueError("FPS must be positive")
-        if self.visualizer not in ("none", "bars", "wave"):
-            raise ValueError(f"Invalid visualizer mode: {self.visualizer}")
+            raise ValueError(f"Unknown preset: {self.preset!r}")
+
+        if self.export is not None and self.export not in EXPORT_FORMATS:
+            raise ValueError(
+                f"Unsupported export format: {self.export!r} "
+                f"(expected one of: {', '.join(EXPORT_FORMATS)})"
+            )
+
+        if self.lyrics_mode not in LYRICS_MODES:
+            raise ValueError(f"Invalid lyrics mode: {self.lyrics_mode!r}")
+
+        if self.visualizer not in VISUALIZER_MODES:
+            raise ValueError(f"Invalid visualizer mode: {self.visualizer!r}")
+
+        if (
+            isinstance(self.camera_index, bool)
+            or not isinstance(self.camera_index, int)
+            or self.camera_index < 0
+        ):
+            raise ValueError(
+                f"Camera index must be an integer >= 0, got {self.camera_index!r}"
+            )
+
+        for name in ("audio", "color", "cache", "controls", "webcam"):
+            value = getattr(self, name)
+            if not isinstance(value, bool):
+                raise ValueError(f"{name.capitalize()} must be a boolean, got {value!r}")
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary.

@@ -75,6 +75,27 @@ class TestExportGif:
         assert not os.path.exists(output)
 
     @requires_pil
+    def test_fractional_fps_export_is_valid(self, tmp_dir):
+        # Regression: fps=0.5 used to be truncated to 0 and crash on 1000/fps.
+        exp = ASCIIExporter(width=10, fps=0.5)
+        assert exp.fps == 0.5
+        assert exp._frame_duration_ms() == 2000
+        for i in range(3):
+            exp.add_frame(["abcde", "fghij"], frame_num=i)
+        output = str(tmp_dir / "slow.gif")
+        exp.export_gif(output)
+        assert os.path.exists(output)
+        assert os.path.getsize(output) > 0
+
+    @requires_pil
+    def test_invalid_fps_raises_value_error(self, tmp_dir):
+        exp = ASCIIExporter(width=10, fps=0)
+        exp.add_frame(["abcde"], frame_num=0)
+        with pytest.raises(ValueError, match="Invalid export FPS"):
+            exp.export_gif(str(tmp_dir / "bad.gif"))
+        exp.cleanup()
+
+    @requires_pil
     def test_gif_cleanup_frames(self, tmp_dir):
         exp = ASCIIExporter(width=10, fps=10)
         for i in range(3):

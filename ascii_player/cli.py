@@ -3,7 +3,29 @@
 import argparse
 
 from . import __version__
-from .config import ASCII_PRESETS, DEFAULT_AUDIO, DEFAULT_COLOR, DEFAULT_FPS, DEFAULT_WIDTH
+from .config import (
+    ASCII_PRESETS,
+    DEFAULT_AUDIO,
+    DEFAULT_COLOR,
+    DEFAULT_FPS,
+    DEFAULT_WIDTH,
+    PROMPT_ENGINES,
+)
+
+
+def positive_int(value):
+    """argparse type for strictly positive integer values (e.g. output width)."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError(
+            f"must be a positive integer, got {value!r}"
+        ) from None
+    if parsed < 1:
+        raise argparse.ArgumentTypeError(
+            f"must be a positive integer, got {value!r}"
+        )
+    return parsed
 
 
 def parse_args():
@@ -52,7 +74,7 @@ Controls: Space=pause, Q=quit, +/-=speed, Arrows=seek
     )
     parser.add_argument(
         "-w", "--width",
-        type=lambda x: max(0, int(x)),
+        type=positive_int,
         default=DEFAULT_WIDTH,
         help=f"ASCII output width in characters (default: {DEFAULT_WIDTH})"
     )
@@ -92,9 +114,9 @@ Controls: Space=pause, Q=quit, +/-=speed, Arrows=seek
     )
     parser.add_argument(
         "--export",
-        choices=["gif", "mp4", "txt", "ans", "html"],
+        choices=["gif", "mp4", "txt", "ans", "html", "png"],
         default=None,
-        help="Export ASCII video to file"
+        help="Export ASCII video or image to file"
     )
     parser.add_argument(
         "-o", "--output",
@@ -184,6 +206,22 @@ Controls: Space=pause, Q=quit, +/-=speed, Arrows=seek
         "--clipboard",
         action="store_true",
         help="Render an image from the clipboard",
+    )
+    parser.add_argument(
+        "--prompt",
+        default=None,
+        help="Generate ASCII art from a text prompt",
+    )
+    parser.add_argument(
+        "--prompt-engine",
+        choices=list(PROMPT_ENGINES),
+        default="auto",
+        help="Prompt-to-ASCII engine (default: auto)",
+    )
+    parser.add_argument(
+        "--font",
+        default="slant",
+        help="FIGlet font for --prompt-engine banner (default: slant)",
     )
 
     return parser.parse_args()

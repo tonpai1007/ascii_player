@@ -7,6 +7,8 @@ build/
 .cache/
 .pytest_cache/
 .ruff_cache/
+.coverage
+htmlcov/
 .deepeval/
 ascii_player.log
 ascii_player.yaml

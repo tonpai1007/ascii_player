@@ -25,6 +25,11 @@ class TestIsYoutubeUrl:
     def test_plain_text(self):
         assert not is_youtube_url("hello world")
 
+    def test_lookalike_host_rejected(self):
+        assert not is_youtube_url("https://youtube.com.evil.com/watch?v=abc")
+        assert not is_youtube_url("https://youtu.be.attacker.tld/abc")
+        assert not is_youtube_url("https://www.youtube.com@evil.com/watch?v=abc")
+
 
 class TestDownloadYoutubeVideo:
     def test_returns_none_on_file_not_found(self):

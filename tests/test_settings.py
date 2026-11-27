@@ -103,3 +103,22 @@ class TestMergeArgs:
         config["audio"] = True
         merged = merge_args_with_config(args, config)
         assert merged["audio"] is False
+
+    def test_config_visualizer_survives_default_cli_flag(self):
+        args = self._make_args(visualizer="none")
+        config = DEFAULT_CONFIG.copy()
+        config["visualizer"] = "bars"
+        merged = merge_args_with_config(args, config)
+        assert merged["visualizer"] == "bars"
+
+    def test_cli_visualizer_overrides_config(self):
+        args = self._make_args(visualizer="wave")
+        config = DEFAULT_CONFIG.copy()
+        config["visualizer"] = "bars"
+        merged = merge_args_with_config(args, config)
+        assert merged["visualizer"] == "wave"
+
+    def test_visualizer_key_present_without_config_value(self):
+        args = self._make_args(visualizer="none")
+        merged = merge_args_with_config(args, DEFAULT_CONFIG.copy())
+        assert merged["visualizer"] == "none"

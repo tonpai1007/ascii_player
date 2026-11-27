@@ -1,8 +1,30 @@
-"""Terminal User Interface package for ASCII Video Player."""
+"""Terminal User Interface package for ASCII Art Studio & Video Player."""
 
 from ..images import clipboard_image, clipboard_text, save_clipboard_image
 from ..launcher import _win_quote, launch_new_terminal
 from .app import ASCIITuiApp, run_tui
+from .canvas_engine import (
+    ASCII_STENCILS,
+    BOX_STYLES,
+    COLOR_SWATCHES,
+    DRAW_TOOLS,
+    MIRROR_CHAR_MAP,
+    QUICK_GLYPHS,
+    STENCIL_ORDER,
+    SYMMETRY_MODES,
+    TERMINAL_COLORS,
+    AsciiCanvasModel,
+    mirror_char,
+    stencil_to_grid,
+)
+from .commands import (
+    SLASH_COMMANDS,
+    SlashCommand,
+    filter_slash_commands,
+    find_matching_media_files,
+    parse_omnibox_input,
+)
+from .draw_panel import DrawCanvas, DrawWorkspace
 from .helpers import (
     LYRICS_EXT,
     RECENT_LIMIT,
@@ -13,35 +35,64 @@ from .helpers import (
     _save_recent,
     _strip_ansi,
     build_player_args,
+    compute_autofit_width,
     format_command_preview,
     is_url,
 )
-from .screens import FilePickerScreen, HelpScreen
+from .screens import CommandPaletteScreen, ExportScreen, FilePickerScreen, HelpScreen
 from .widgets import (
     CommandPreview,
     FileBrowser,
     InlinePreview,
+    OmniboxBar,
     PlaylistPanel,
+    PromptPanel,
     RecentList,
     SettingsPanel,
     StatusBar,
+    StudioTopBar,
+    UrlPanel,
+    WebcamPanel,
+    WelcomeHero,
 )
 
 __all__ = [
+    "ASCII_STENCILS",
     "ASCIITuiApp",
+    "AsciiCanvasModel",
+    "BOX_STYLES",
+    "COLOR_SWATCHES",
+    "CommandPaletteScreen",
     "CommandPreview",
+    "DRAW_TOOLS",
+    "DrawCanvas",
+    "DrawWorkspace",
+    "ExportScreen",
     "FileBrowser",
     "FilePickerScreen",
     "HelpScreen",
     "InlinePreview",
     "LYRICS_EXT",
+    "MIRROR_CHAR_MAP",
+    "OmniboxBar",
     "PlaylistPanel",
+    "PromptPanel",
+    "QUICK_GLYPHS",
     "RECENT_LIMIT",
     "RECENT_STORE",
     "RecentList",
+    "SLASH_COMMANDS",
+    "STENCIL_ORDER",
+    "SYMMETRY_MODES",
     "SettingsPanel",
+    "SlashCommand",
     "StatusBar",
+    "StudioTopBar",
+    "TERMINAL_COLORS",
+    "UrlPanel",
     "VIDEO_EXT",
+    "WebcamPanel",
+    "WelcomeHero",
     "_auto_lyrics",
     "_load_recent",
     "_save_recent",
@@ -50,9 +101,15 @@ __all__ = [
     "build_player_args",
     "clipboard_image",
     "clipboard_text",
+    "compute_autofit_width",
+    "filter_slash_commands",
+    "find_matching_media_files",
     "format_command_preview",
     "is_url",
     "launch_new_terminal",
+    "mirror_char",
+    "parse_omnibox_input",
+    "stencil_to_grid",
     "run_tui",
     "save_clipboard_image",
 ]

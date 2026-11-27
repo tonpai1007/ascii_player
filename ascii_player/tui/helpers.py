@@ -57,6 +57,23 @@ def _auto_lyrics(video_path: str) -> Optional[str]:
     return None
 
 
+def compute_autofit_width(
+    img_w: int,
+    img_h: int,
+    avail_w: int,
+    avail_h: int,
+    aspect: float = 0.55,
+) -> int:
+    """Compute max ASCII width fitting both horizontally and vertically in viewport."""
+    safe_w = max(12, int(avail_w or 80))
+    safe_h = max(8, int(avail_h or 24))
+    if img_w <= 0 or img_h <= 0:
+        return safe_w
+    eff_aspect = float(aspect) if aspect and aspect > 0 else 0.55
+    max_w_by_height = int((safe_h * img_w) / max(1e-6, img_h * eff_aspect))
+    return max(12, min(safe_w, max_w_by_height))
+
+
 def build_player_args(
     source: str,
     settings: Dict[str, Any],

@@ -16,13 +16,18 @@ except ImportError:
 class FrameCache:
     """Cache decoded ASCII frames for instant replay."""
 
-    def __init__(self, cache_dir=".cache"):
+    def __init__(self, cache_dir=".cache", max_frames=3600):
         """Initialize frame cache.
 
         Args:
             cache_dir: Directory to store cache files
+            max_frames: Maximum number of frames kept in memory. Once the cap
+                is reached the earlier contiguous prefix is kept for replay and
+                no further frames are accepted.
         """
         self.cache_dir = cache_dir
+        self.max_frames = max(0, int(max_frames))
+        self._cap_warned = False
         self.frames = {}
         self.cache_file = None
 
@@ -66,10 +71,35 @@ class FrameCache:
             if data is None:
                 data = json.loads(raw.decode("utf-8"))
 
-            if not isinstance(data, list):
-                raise ValueError("Cached frame payload is not a list")
+            if isinstance(data, dict):
+                # v2 format: {"version": 2, "frames": [[index, frame], ...]}
+                pairs = data.get("frames")
+                if data.get("version") != 2 or not isinstance(pairs, list):
+                    raise ValueError("Unsupported cached frame payload")
+                frames = {}
+                for pair in pairs:
+                    if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+                        raise ValueError("Invalid cached frame entry")
+                    index, ascii_frame = pair
+                    frames[int(index)] = ascii_frame
+            elif isinstance(data, list):
+                # Legacy format: a dense list starting at frame index 0.
+                frames = {i: frame for i, frame in enumerate(data)}
+            else:
+                raise ValueError("Cached frame payload has an unknown type")
 
-            self.frames = {i: frame for i, frame in enumerate(data)}
+            # An old/oversized cache must not defeat the in-memory cap.
+            over_cap = len(frames) > self.max_frames
+            if over_cap:
+                logger.warning(
+                    "Cache holds {n} frames but the limit is {cap}; keeping the first {cap}",
+                    n=len(frames),
+                    cap=self.max_frames,
+                )
+                frames = {index: frames[index] for index in sorted(frames)[:self.max_frames]}
+
+            self.frames = frames
+            self._cap_warned = over_cap
             logger.info("Loaded {n} cached frames", n=len(self.frames))
             return self.frames
         except Exception as e:
@@ -84,7 +114,12 @@ class FrameCache:
             return
 
         try:
-            data = [self.frames[i] for i in sorted(self.frames.keys())]
+            # Store (index, frame) pairs so sparse caches reload correctly.
+            # A list of pairs works with both JSON and msgpack.
+            data = {
+                "version": 2,
+                "frames": [[index, self.frames[index]] for index in sorted(self.frames)],
+            }
             if MSGPACK_AVAILABLE:
                 payload = msgpack.packb(data, use_bin_type=True)
             else:
@@ -104,7 +139,15 @@ class FrameCache:
         self.cache_file = self._get_cache_path(key)
 
     def add_frame(self, frame_num, ascii_frame):
-        """Add a frame to cache."""
+        """Add a frame to cache, respecting the in-memory frame cap."""
+        if frame_num not in self.frames and len(self.frames) >= self.max_frames:
+            if not self._cap_warned:
+                logger.warning(
+                    "Frame cache limit reached ({n} frames); further frames will not be cached",
+                    n=self.max_frames,
+                )
+                self._cap_warned = True
+            return
         self.frames[frame_num] = ascii_frame
 
     def get_frame(self, frame_num):
@@ -118,4 +161,5 @@ class FrameCache:
     def clear(self):
         """Clear all cached frames."""
         self.frames.clear()
+        self._cap_warned = False
         logger.debug("Cache cleared")

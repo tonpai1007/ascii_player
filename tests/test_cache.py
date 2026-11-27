@@ -2,6 +2,7 @@
 
 import json
 import os
+from unittest.mock import patch
 
 from ascii_player.cache import FrameCache
 
@@ -106,3 +107,49 @@ class TestFrameCache:
         cache.set_cache_path("/test.mp4", 80, True, "classic")
         path2 = cache.cache_file
         assert path1 != path2
+
+    def test_sparse_indices_survive_roundtrip(self, tmp_dir):
+        cache_dir = os.path.join(tmp_dir, "cache")
+        cache = FrameCache(cache_dir=cache_dir)
+        cache.set_cache_path("/sparse.mp4", 40, False, "simple")
+        for index in (0, 5, 120):
+            cache.add_frame(index, [f"row-{index}"])
+        cache.save()
+
+        loaded = FrameCache(cache_dir=cache_dir).load("/sparse.mp4", 40, False, "simple")
+        assert loaded is not None
+        assert set(loaded) == {0, 5, 120}
+        assert loaded[5] == ["row-5"]
+        assert loaded[120] == ["row-120"]
+
+    def test_legacy_list_loads_as_dense_indices(self, tmp_dir):
+        cache_dir = os.path.join(tmp_dir, "cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        cache = FrameCache(cache_dir=cache_dir)
+        cache.set_cache_path("/legacy.mp4", 60, False, "classic")
+        with open(cache.cache_file, "w", encoding="utf-8") as f:
+            json.dump(["frame0", "frame1", "frame2"], f)
+
+        loaded = cache.load("/legacy.mp4", 60, False, "classic")
+        assert loaded == {0: "frame0", 1: "frame1", 2: "frame2"}
+
+
+class TestFrameCacheLimit:
+    def test_max_frames_caps_memory_and_warns_once(self, tmp_dir):
+        cache = FrameCache(cache_dir=tmp_dir, max_frames=2)
+        with patch("ascii_player.cache.logger.warning") as warn:
+            for index in range(4):
+                cache.add_frame(index, [f"row-{index}"])
+
+        assert list(cache.frames) == [0, 1]
+        assert warn.call_count == 1
+
+    def test_existing_frames_can_still_be_updated_at_cap(self, tmp_dir):
+        cache = FrameCache(cache_dir=tmp_dir, max_frames=2)
+        cache.add_frame(0, ["old"])
+        cache.add_frame(1, ["one"])
+        cache.add_frame(2, ["two"])
+        cache.add_frame(0, ["new"])
+
+        assert set(cache.frames) == {0, 1}
+        assert cache.get_frame(0) == ["new"]
