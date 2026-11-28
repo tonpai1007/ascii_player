@@ -133,6 +133,7 @@ class ExportScreen(ModalScreen):
 def _build_palette_entries() -> List[Tuple[str, str, str]]:
     """Return list of (label, slash_cmd, arg) for the floating Command Palette."""
     entries: List[Tuple[str, str, str]] = [
+        ("[help] Keyboard shortcuts & commands (Ctrl+P)", "/help", ""),
         ("[cmd] Open Terminal Type Tab (Ctrl+D)", "/draw", ""),
         ("[cmd] Type Skull Stencil in Terminal", "/draw", "skull"),
         ("[cmd] Trace Current Art in Type Tab", "/draw", "trace"),
@@ -173,7 +174,7 @@ def _build_palette_entries() -> List[Tuple[str, str, str]]:
 
 
 class CommandPaletteScreen(ModalScreen):
-    """Floating fuzzy Command Palette (OpenCode / Claude Code Ctrl+K style)."""
+    """Floating fuzzy command palette (Ctrl+K)."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -293,7 +294,7 @@ class HelpScreen(ModalScreen):
                     "  Ctrl+W         Toggle live webcam (Space freezes)\n"
                     "  Ctrl+Y         Copy ASCII art to clipboard\n"
                     "  Ctrl+E         Export (.png / .html / .ans / .txt / .gif)\n"
-                    "  Ctrl+T         Cycle theme (opencode, claude, retro...)\n"
+                    "  Ctrl+T         Cycle theme (amber, sand, retro...)\n"
                     "  Ctrl+V         Paste image or URL from clipboard\n"
                     "  Ctrl+L         Toggle activity log drawer\n"
                     "  Alt+Left/Right Step session artwork history\n"

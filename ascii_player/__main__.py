@@ -67,6 +67,7 @@ def _run_image(source, args):
             out,
             width=args.width,
             preset=args.preset or "classic",
+            color=args.color,
             invert=args.invert,
             dither=args.dither,
             crop=args.crop,

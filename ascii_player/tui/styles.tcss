@@ -4,7 +4,7 @@ Screen {
     color: $foreground;
 }
 
-/* Minimalist 1-line OpenCode / Claude Code Top Bar */
+/* Minimalist 1-line top bar */
 StudioTopBar {
     height: 1;
     width: 100%;
@@ -207,7 +207,7 @@ ListItem:hover {
 .compact-label {
     width: 8;
     height: 1;
-    color: $text-muted;
+    color: $foreground;
 }
 
 .compact-control {
@@ -247,7 +247,7 @@ ListItem:hover {
 
 #url-info {
     height: auto;
-    color: $text-muted;
+    color: $foreground;
     margin-top: 1;
 }
 
@@ -283,7 +283,7 @@ ListItem:hover {
 
 #recent-title, #playlist-title {
     text-style: bold;
-    color: $text-muted;
+    color: $foreground;
     height: 1;
 }
 
@@ -295,7 +295,7 @@ ListItem:hover {
 
 .recent-item {
     padding: 0 1;
-    color: $text-muted;
+    color: $foreground;
 }
 
 .playlist-buttons {
@@ -431,7 +431,7 @@ InlinePreview.hidden {
     color: $foreground;
 }
 
-/* OpenCode Left-Accent Elevated Omnibox Card */
+/* Left-accent elevated omnibox card */
 OmniboxBar {
     height: auto;
     width: 100%;
@@ -487,7 +487,7 @@ OmniboxBar.hidden {
 
 #autocomplete-hint {
     height: 1;
-    color: $text-muted;
+    color: $foreground;
     background: $panel;
     padding: 0 1;
 }
@@ -534,7 +534,7 @@ OmniboxBar.hidden {
 #omnibox-pills {
     width: 1fr;
     height: 1;
-    color: $text-muted;
+    color: $foreground;
     text-wrap: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -558,13 +558,14 @@ DrawWorkspace.hidden {
 }
 
 #draw-toolbar-top {
-    height: 1;
+    height: 2;
     width: 100%;
     background: $surface;
     padding: 0 1;
     overflow-x: auto;
     overflow-y: hidden;
-    scrollbar-size-horizontal: 0;
+    /* Thin but visible: the horizontal scroll is the only clue there are more tools. */
+    scrollbar-size-horizontal: 1;
 }
 
 .draw-btn {
@@ -688,7 +689,7 @@ DrawWorkspace.hidden {
 .setting-label {
     width: 10;
     height: 1;
-    color: $text-muted;
+    color: $foreground;
 }
 
 .setting-input {
@@ -721,7 +722,7 @@ DrawWorkspace.hidden {
 #cmd-preview {
     height: auto;
     max-height: 3;
-    color: $text-muted;
+    color: $foreground;
     overflow: hidden;
     text-overflow: ellipsis;
 }
@@ -743,7 +744,7 @@ StatusBar {
     height: 1;
     width: 100%;
     background: $surface;
-    color: $text-muted;
+    color: $foreground;
     padding: 0 2;
 }
 
@@ -763,7 +764,7 @@ StatusBar {
 #key-hints {
     width: auto;
     height: 1;
-    color: $text-muted;
+    color: $foreground;
     padding-right: 2;
 }
 
@@ -783,7 +784,8 @@ HelpScreen, ExportScreen, FilePickerScreen, CommandPaletteScreen {
 }
 
 #palette-dialog {
-    width: 68;
+    width: 80%;
+    max-width: 68;
     height: auto;
     max-height: 24;
     border: round $accent;
@@ -810,13 +812,14 @@ HelpScreen, ExportScreen, FilePickerScreen, CommandPaletteScreen {
 }
 
 #palette-hint {
-    color: $text-muted;
+    color: $foreground;
     height: 1;
     margin-top: 1;
 }
 
 #help-dialog {
-    width: 64;
+    width: 80%;
+    max-width: 64;
     height: 1fr;
     max-height: 100%;
     border: round $accent;
@@ -842,13 +845,14 @@ HelpScreen, ExportScreen, FilePickerScreen, CommandPaletteScreen {
 }
 
 #help-hint {
-    color: $text-muted;
+    color: $foreground;
     height: 1;
     margin-top: 1;
 }
 
 #export-dialog {
-    width: 54;
+    width: 70%;
+    max-width: 54;
     height: auto;
     border: round $accent;
     background: $surface;
@@ -873,7 +877,8 @@ HelpScreen, ExportScreen, FilePickerScreen, CommandPaletteScreen {
 }
 
 #picker-container {
-    width: 80;
+    width: 90%;
+    max-width: 80;
     height: 22;
     border: round $accent;
     background: $surface;
@@ -892,6 +897,14 @@ HelpScreen, ExportScreen, FilePickerScreen, CommandPaletteScreen {
 }
 
 /* Narrow Terminal Responsive Rules (< 96 cols or <= 26 rows, e.g. 80x24) */
+Screen.narrow #brand-mark {
+    display: none;
+}
+
+Screen.narrow #canvas-meta {
+    min-width: 20;
+}
+
 Screen.narrow #btn-toggle-files,
 Screen.narrow #btn-toggle-style {
     display: none;

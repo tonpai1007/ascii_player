@@ -1,19 +1,21 @@
 """Themes for the TUI.
 
-Three themes plus custom themes from other projects:
-- dark (default)
-- light
-- high_contrast
+Seven themes:
+- amber (default)
+- sand
+- dark
 - retro (CRT theme from retro_sound)
 - steins_gate (from SteinsGateShell)
+- light
+- high_contrast
 """
 
 from textual.theme import Theme
 
-# Theme cycle order: opencode -> claude -> dark -> retro -> steins_gate -> light -> high_contrast
+# Theme cycle order: amber -> sand -> dark -> retro -> steins_gate -> light -> high_contrast
 THEME_ORDER = [
-    "opencode",
-    "claude",
+    "amber",
+    "sand",
     "dark",
     "retro",
     "steins_gate",
@@ -21,7 +23,7 @@ THEME_ORDER = [
     "high_contrast",
 ]
 
-DEFAULT_THEME = "opencode"
+DEFAULT_THEME = "amber"
 
 THEME_STORE = "ascii_player_theme.txt"
 
@@ -29,8 +31,8 @@ THEME_STORE = "ascii_player_theme.txt"
 def _build_themes():
     """Build the theme registry as Textual Theme objects."""
     themes = {
-        "opencode": Theme(
-            name="opencode",
+        "amber": Theme(
+            name="amber",
             primary="#27272f",
             accent="#f59e0b",
             background="#0a0a0c",
@@ -42,8 +44,8 @@ def _build_themes():
             success="#22c55e",
             dark=True,
         ),
-        "claude": Theme(
-            name="claude",
+        "sand": Theme(
+            name="sand",
             primary="#332d28",
             accent="#d97757",
             background="#141210",

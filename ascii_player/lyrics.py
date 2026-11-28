@@ -6,6 +6,12 @@ import re
 
 from loguru import logger
 
+# Standard ASS dialogue field order, used when no usable Format: line is present.
+_ASS_DEFAULT_FIELDS = [
+    "layer", "start", "end", "style", "name",
+    "marginl", "marginr", "marginv", "effect", "text",
+]
+
 
 def _read_file_with_encoding(file_path):
     """Read file with encoding fallback for Windows compatibility.
@@ -144,15 +150,22 @@ def parse_lrc(file_path):
             if not line:
                 continue
 
-            match = re.match(r'\[(\d+):(\d+\.?\d*)\](.*)', line)
-            if match:
-                minutes = int(match.group(1))
-                seconds = float(match.group(2))
-                text = match.group(3).strip()
-                timestamp = minutes * 60 + seconds
+            timestamps = []
+            remaining = line
+            while True:
+                tag_match = re.match(r'\[(\d+):(\d+\.?\d*)\]', remaining)
+                if not tag_match:
+                    break
+                minutes = int(tag_match.group(1))
+                seconds = float(tag_match.group(2))
+                timestamps.append(minutes * 60 + seconds)
+                remaining = remaining[tag_match.end():]
 
+            if timestamps:
+                text = remaining.strip()
                 if text:
-                    lyrics.add_line(LyricsLine(timestamp, text))
+                    for timestamp in timestamps:
+                        lyrics.add_line(LyricsLine(timestamp, text))
             else:
                 meta_match = re.match(r'\[(\w+):(.*)\]', line)
                 if meta_match:
@@ -196,7 +209,12 @@ def parse_srt(file_path):
                 lines[1]
             )
             if time_match:
-                h, m, s, ms = int(time_match.group(1)), int(time_match.group(2)), int(time_match.group(3)), int(time_match.group(4))
+                h, m, s, ms = (
+                    int(time_match.group(1)),
+                    int(time_match.group(2)),
+                    int(time_match.group(3)),
+                    int(time_match.group(4)),
+                )
                 timestamp = h * 3600 + m * 60 + s + ms / 1000
 
                 text = " ".join(lines[2:])
@@ -231,7 +249,7 @@ def parse_ass(file_path):
             return lyrics
 
         in_events = False
-        format_fields = []
+        format_fields = None
 
         for line in content.split("\n"):
             line = line.strip()
@@ -248,15 +266,19 @@ def parse_ass(file_path):
                 continue
 
             if line.lower().startswith("format:"):
-                format_fields = [f.strip().lower() for f in line[7:].split(",")]
+                declared = [f.strip().lower() for f in line[7:].split(",")]
+                # A Format: line without "start" cannot provide usable timings;
+                # fall back to the standard field order in that case.
+                format_fields = declared if "start" in declared else list(_ASS_DEFAULT_FIELDS)
                 continue
 
             if line.lower().startswith("dialogue:"):
-                parts = line[9:].split(",", len(format_fields) - 1)
-                if len(parts) < len(format_fields):
+                fields = format_fields if format_fields is not None else _ASS_DEFAULT_FIELDS
+                parts = line[9:].split(",", len(fields) - 1)
+                if len(parts) < len(fields):
                     continue
 
-                field_dict = dict(zip(format_fields, parts))
+                field_dict = dict(zip(fields, parts))
 
                 start_str = field_dict.get("start", "0:00:00.00")
                 timestamp = _parse_ass_time(start_str)

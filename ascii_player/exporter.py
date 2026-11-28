@@ -247,7 +247,9 @@ def save_ascii_screenshot(ascii_frame, frameno, width, color=False):
     """
     try:
         import time
-        stamp = time.strftime("%Y%m%d_%H%M%S")
+        # Microsecond suffix keeps rapid successive shots at the same frame
+        # from overwriting each other while preserving the filename prefix.
+        stamp = f"{time.strftime('%Y%m%d_%H%M%S')}_{time.time_ns() % 1_000_000:06d}"
         base = f"ascii_shot_{frameno}_{stamp}"
 
         txt_path = f"{base}.txt"
@@ -290,6 +292,10 @@ def save_ascii_gallery(frames, output_path, fmt="txt"):
     try:
         if fmt == "npz":
             import numpy as np
+            # np.savez_compressed appends ".npz" itself; normalise here so the
+            # path we return is the file we actually wrote.
+            if not str(output_path).lower().endswith(".npz"):
+                output_path = f"{output_path}.npz"
             arrays = []
             meta = []
             for frame_num, ascii_frame in frames:

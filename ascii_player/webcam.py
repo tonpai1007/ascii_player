@@ -9,10 +9,25 @@ from loguru import logger
 from .core import frame_to_ascii
 
 
+def _select_backends():
+    """Return capture backends to try, ordered for the current platform."""
+    if sys.platform == "win32":
+        candidates = [
+            getattr(cv2, "CAP_DSHOW", None),
+            getattr(cv2, "CAP_MSMF", None),
+            cv2.CAP_ANY,
+        ]
+    elif sys.platform.startswith("linux"):
+        candidates = [getattr(cv2, "CAP_V4L2", None), cv2.CAP_ANY]
+    else:
+        candidates = [cv2.CAP_ANY]
+
+    # Drop unavailable constants and duplicates while preserving priority order.
+    return list(dict.fromkeys(backend for backend in candidates if backend is not None))
+
+
 class WebcamCapture:
     """Capture and display live webcam feed as ASCII art."""
-
-    _BACKENDS = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]
 
     def __init__(self, camera_index=0, filter="none"):
         """Initialize webcam capture.
@@ -56,7 +71,7 @@ class WebcamCapture:
             True if successful
         """
         try:
-            for backend in self._BACKENDS:
+            for backend in _select_backends():
                 cap = cv2.VideoCapture(self.camera_index, backend)
                 if cap.isOpened():
                     self.cap = cap
@@ -120,7 +135,7 @@ def run_webcam(
 
     frame_interval = 1.0 / target_fps
     frame_count = 0
-    start_time = time.time()
+    start_time = time.monotonic()
 
     print("\033[2J\033[H", end="", flush=True)
     logger.info(
@@ -132,7 +147,7 @@ def run_webcam(
     try:
         consecutive_failures = 0
         while True:
-            frame_start = time.time()
+            frame_start = time.monotonic()
 
             frame = webcam.read_frame()
             if frame is None:
@@ -161,7 +176,7 @@ def run_webcam(
             lines.append(border)
 
             frame_count += 1
-            elapsed = time.time() - start_time
+            elapsed = time.monotonic() - start_time
             current_fps = frame_count / elapsed if elapsed > 0 else 0
             lines.append(
                 f"\033[1;33mWebcam | Frame: {frame_count} | "
@@ -171,7 +186,7 @@ def run_webcam(
             sys.stdout.write("\033[H" + "\n".join(lines) + "\n")
             sys.stdout.flush()
 
-            frame_elapsed = time.time() - frame_start
+            frame_elapsed = time.monotonic() - frame_start
             sleep_time = frame_interval - frame_elapsed
             if sleep_time > 0:
                 time.sleep(sleep_time)
@@ -180,7 +195,7 @@ def run_webcam(
         logger.info("Webcam stopped by user")
     finally:
         webcam.close()
-        elapsed = time.time() - start_time
+        elapsed = time.monotonic() - start_time
         fps = frame_count / elapsed if elapsed > 0 else 0
         logger.info(
             "Webcam stats: {f} frames in {e:.1f}s ({fps:.1f} FPS)",

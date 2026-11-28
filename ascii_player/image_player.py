@@ -34,6 +34,30 @@ ANIMATION_DURATIONS = {
 }
 
 
+def _render_options(width, preset, invert, dither, crop, aspect):
+    """Every option forwarded to image_to_grid.
+
+    Keeping this in one place lets the cache key and the actual render call
+    share the same parameter list, so a new render option cannot silently
+    produce stale cached grids.
+    """
+    return {
+        "width": width,
+        "preset": preset,
+        "invert": invert,
+        "dither": dither,
+        "crop": crop,
+        "aspect": aspect,
+        "contrast": 1.0,
+        "brightness": 1.0,
+        "filter_mode": "none",
+        "colorcycle_hue": 0.0,
+        "post_fx": (),
+        "charset": None,
+        "max_rows": None,
+    }
+
+
 def _terminal_size():
     import shutil
 
@@ -179,6 +203,8 @@ def play_image(
 
     from .images import image_to_grid
 
+    render_options = _render_options(width, preset, invert, dither, crop, aspect)
+
     def _cache_path():
         if not cache:
             return None
@@ -190,7 +216,7 @@ def play_image(
         key = _hashlib.sha256()
         key.update(str(source).encode("utf-8", "replace"))
         key.update(str(mtime).encode())
-        key.update(f"{width}|{preset}|{int(invert)}|{int(dither)}".encode())
+        key.update(repr(sorted(render_options.items())).encode("utf-8", "replace"))
         directory = _os.path.join(_os.path.expanduser("~"), ".cache", "ascii_player")
         _os.makedirs(directory, exist_ok=True)
         return _os.path.join(directory, key.hexdigest() + ".pkl")
@@ -207,7 +233,8 @@ def play_image(
     if grids is None:
         grids = []
         for frame, duration in frames:
-            grids.append((image_to_grid(frame, width, preset, invert=invert, dither=dither, crop=crop, aspect=aspect), duration))
+            grid = image_to_grid(frame, **render_options)
+            grids.append((grid, duration))
         if cache_file:
             try:
                 with open(cache_file, "wb") as handle:
@@ -266,8 +293,11 @@ def export_still(
     if width <= 0:
         import shutil as _shutil
         width = min(200, _shutil.get_terminal_size((80, 24)).columns or 80) or 80
-    grid = image_to_grid(load_image(source), width, preset, invert=invert, dither=dither, crop=crop, aspect=aspect)
-    return save_grid(grid, path)
+    image = load_image(source)
+    grid = image_to_grid(
+        image, **_render_options(width, preset, invert, dither, crop, aspect)
+    )
+    return save_grid(grid, path, color=color)
 
 
 def export_image(
@@ -275,6 +305,7 @@ def export_image(
     path: str,
     width: int = 80,
     preset: str = "classic",
+    color: bool = False,
     invert: bool = False,
     dither: bool = False,
     crop: bool = False,
@@ -292,15 +323,19 @@ def export_image(
     exporter = ASCIIExporter(width, fps)
 
     if len(frames) == 1:
-        grid = image_to_grid(frames[0][0], width, preset, invert=invert, dither=dither, crop=crop, aspect=aspect)
-        plain = grid_lines(grid, color=True)
+        grid = image_to_grid(
+            frames[0][0], **_render_options(width, preset, invert, dither, crop, aspect)
+        )
+        plain = grid_lines(grid, color=color)
         total = max(1, int(fps * max(0.5, duration)))
         for index in range(total):
             exporter.add_frame(plain, index)
     else:
         for index, (frame, _duration) in enumerate(frames):
-            grid = image_to_grid(frame, width, preset, invert=invert, dither=dither, crop=crop, aspect=aspect)
-            exporter.add_frame(grid_lines(grid, color=True), index)
+            grid = image_to_grid(
+                frame, **_render_options(width, preset, invert, dither, crop, aspect)
+            )
+            exporter.add_frame(grid_lines(grid, color=color), index)
 
     if export_format == "mp4" or str(path).lower().endswith(".mp4"):
         exporter.export_mp4(path)

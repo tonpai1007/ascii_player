@@ -101,6 +101,23 @@ TUI keyboard shortcuts:
 | G | Focus path bar |
 | R | Refresh file list |
 | Q | Quit |
+| Ctrl+T | Cycle color theme |
+
+### Themes
+
+The TUI ships with seven color themes. The active theme appears as the last item in the status row near the omnibox (for example `auto · classic · mono · fit · amber`):
+
+| Theme | Look |
+|-------|------|
+| `amber` (default) | Dark background, amber accent, amber→pink→purple logo |
+| `sand` | Dark background, warm orange/beige palette |
+| `dark` | Blue-accented dark palette |
+| `retro` | Amber CRT-style palette |
+| `steins_gate` | Deep blue with orange accent |
+| `light` | Light background |
+| `high_contrast` | Maximum-contrast dark palette |
+
+Cycle with `Ctrl+T`, click the theme name in the status row, or set one directly with `/theme sand` (or any name above). The choice is saved to `ascii_player_theme.txt` in the current directory and is restored at the next launch. Themes affect the TUI only, not ASCII playback output.
 
 ### Lyrics Sync
 

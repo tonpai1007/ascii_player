@@ -4,15 +4,17 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 
 from loguru import logger
 
 
-def extract_audio(video_path):
+def extract_audio(video_path, timeout=300):
     """Extract audio from video file to temporary WAV file.
 
     Args:
         video_path: Path to video file
+        timeout: Maximum number of seconds allowed for extraction
 
     Returns:
         Path to extracted WAV file, or None if extraction fails
@@ -32,7 +34,7 @@ def extract_audio(video_path):
         ]
 
         logger.debug("Extracting audio: {cmd}", cmd=" ".join(cmd))
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
         if result.returncode != 0:
             logger.warning("Audio extraction failed: {err}", err=result.stderr[:200])
@@ -51,7 +53,9 @@ def extract_audio(video_path):
         shutil.rmtree(temp_dir, ignore_errors=True)
         return None
     except subprocess.TimeoutExpired:
-        logger.warning("Audio extraction timed out")
+        logger.warning(
+            "Audio extraction timed out after {timeout}s", timeout=timeout
+        )
         shutil.rmtree(temp_dir, ignore_errors=True)
         return None
     except Exception as e:
@@ -139,6 +143,27 @@ def stop_audio(process):
                 pass
 
 
+def _remove_with_retry(path, is_dir=False):
+    """Remove a file or directory, retrying briefly on transient OS errors."""
+    last_error = None
+    for attempt in range(3):
+        try:
+            if is_dir:
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
+            return True
+        except OSError as e:
+            last_error = e
+            if attempt < 2:
+                time.sleep(0.1)
+    logger.warning(
+        "Failed to remove {path} after {n} attempts: {err}",
+        path=path, n=3, err=str(last_error),
+    )
+    return False
+
+
 def cleanup_audio(audio_path):
     """Remove temporary audio file.
 
@@ -146,9 +171,7 @@ def cleanup_audio(audio_path):
         audio_path: Path to audio file
     """
     if audio_path and os.path.exists(audio_path):
-        try:
-            temp_dir = os.path.dirname(audio_path)
-            os.remove(audio_path)
-            shutil.rmtree(temp_dir, ignore_errors=True)
-        except OSError:
-            pass
+        temp_dir = os.path.dirname(audio_path)
+        _remove_with_retry(audio_path)
+        if temp_dir and os.path.isdir(temp_dir):
+            _remove_with_retry(temp_dir, is_dir=True)

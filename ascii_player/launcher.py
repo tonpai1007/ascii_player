@@ -4,6 +4,7 @@ import os
 import shlex
 import subprocess
 import sys
+import tempfile
 from typing import List, Optional
 
 PYTHON = sys.executable or "python"
@@ -27,12 +28,24 @@ def launch_new_terminal(args: List[str]) -> bool:
     """Launch a command list in a new terminal window across platforms."""
     try:
         if sys.platform == "win32":
-            quoted = " ".join(_win_quote(a) for a in args)
+            cwd = os.getcwd()
+            # cmd /c and /k strip the outer quotes from their command tail, so
+            # joining individually quoted arguments corrupts the command (and
+            # '=' in a URL is a cmd delimiter). A batch file gives cmd a single
+            # parsing layer with the quotes exactly as written.
+            fd, batch = tempfile.mkstemp(prefix="ascii_player_", suffix=".cmd")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write("@echo off\r\n")
+                f.write(f"cd /d {_win_quote(cwd)}\r\n")
+                f.write(" ".join(_win_quote(a) for a in args) + "\r\n")
+                # (goto) ends the batch without cmd trying to read another line
+                # after the file is deleted. /k keeps the console open instead
+                # of a pause, so the batch is safe to run non-interactively.
+                f.write("echo.\r\n(goto) 2>nul & del \"%~f0\" >nul 2>&1\r\n")
             subprocess.Popen(
-                f'start "ASCII Player" /D {_win_quote(os.getcwd())} cmd /k {quoted}',
-                shell=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                [os.environ.get("COMSPEC", "cmd.exe"), "/k", batch],
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                cwd=cwd,
             )
             return True
         if sys.platform == "darwin":

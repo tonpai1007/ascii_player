@@ -20,6 +20,7 @@ from textual.widgets import (
 )
 
 from ascii_player.settings import load_config
+from ascii_player.themes import cycle_theme
 from ascii_player.tui import (
     ASCIITuiApp,
     CommandPaletteScreen,
@@ -200,6 +201,23 @@ class TestHelpers:
         assert _strip_ansi("plain") == "plain"
 
 
+class TestThemePill:
+    def test_clicking_theme_pill_cycles_theme(self, app):
+        async def check(app, pilot):
+            button = app.query_one("#btn-theme-pill", Button)
+            before = app._current_theme
+            assert str(button.label) == before
+
+            button.press()
+            await pilot.pause()
+
+            assert app._current_theme == cycle_theme(before)
+            assert str(button.label) == app._current_theme
+            assert app._current_theme not in str(app.query_one("#omnibox-pills", Static).content)
+
+        _scenario(app, check)
+
+
 class TestImageSelection:
     def test_select_image_sets_kind(self, app):
         async def check(app, pilot):
@@ -276,7 +294,7 @@ class TestClipboard:
 
 
 class TestStudioLayoutAndDynamicSources:
-    def test_opencode_clean_default_layout_120x36(self, app):
+    def test_amber_clean_default_layout_120x36(self, app):
         async def check(app, pilot):
             topbar = app.query_one(StudioTopBar)
             hero = app.query_one("#welcome-hero", WelcomeHero)
@@ -341,7 +359,7 @@ class TestStudioLayoutAndDynamicSources:
             app.submit_omnibox("/color on")
             app.submit_omnibox("/width 90")
             app.submit_omnibox("/filter edge")
-            app.submit_omnibox("/theme claude")
+            app.submit_omnibox("/theme sand")
             await pilot.pause(0.1)
             settings = app.query_one("SettingsPanel").collect()
             assert settings["preset"] == "blocks"
@@ -349,7 +367,7 @@ class TestStudioLayoutAndDynamicSources:
             assert settings["width"] == "90"
             assert settings["auto_fit"] is False
             assert settings["filter"] == "edge"
-            assert app._current_theme == "claude"
+            assert app._current_theme == "sand"
 
             # Second artwork + history prev/next
             app.submit_omnibox("/banner STUDIO")

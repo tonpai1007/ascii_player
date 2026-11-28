@@ -47,9 +47,32 @@ class TestExtractAudio:
 
     def test_returns_none_on_timeout(self, tmp_dir):
         video = str(tmp_dir / "test.mp4")
-        with patch("ascii_player.audio.subprocess.run", side_effect=subprocess.TimeoutExpired("ffmpeg", 60)):
+        with patch(
+            "ascii_player.audio.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("ffmpeg", 60),
+        ):
             result = extract_audio(video)
             assert result is None
+
+    def test_default_timeout_is_300(self, tmp_dir):
+        with patch("ascii_player.audio.subprocess.run") as run:
+            extract_audio(str(tmp_dir / "test.mp4"))
+        assert run.call_args.kwargs["timeout"] == 300
+
+    def test_custom_timeout_is_used(self, tmp_dir):
+        with patch("ascii_player.audio.subprocess.run") as run:
+            extract_audio(str(tmp_dir / "test.mp4"), timeout=12)
+        assert run.call_args.kwargs["timeout"] == 12
+
+    def test_timeout_warning_names_timeout(self, tmp_dir):
+        with patch(
+            "ascii_player.audio.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("ffmpeg", 45),
+        ):
+            with patch("ascii_player.audio.logger") as log:
+                result = extract_audio(str(tmp_dir / "test.mp4"), timeout=45)
+        assert result is None
+        assert any("45" in str(call) for call in log.warning.call_args_list)
 
 
 class TestPlayAudio:
@@ -146,3 +169,29 @@ class TestCleanupAudio:
 
     def test_nonexistent_safe(self):
         cleanup_audio("/nonexistent/audio.wav")
+
+    def test_retries_then_succeeds(self, tmp_dir):
+        audio = str(tmp_dir / "audio.wav")
+        with open(audio, "wb") as f:
+            f.write(b"fake")
+        remove = MagicMock(side_effect=[OSError("locked"), OSError("locked"), None])
+        with patch("ascii_player.audio.os.remove", remove):
+            with patch("ascii_player.audio.time.sleep") as sleep:
+                with patch("ascii_player.audio.logger") as log:
+                    cleanup_audio(audio)
+        assert remove.call_count == 3
+        assert sleep.call_count == 2
+        log.warning.assert_not_called()
+
+    def test_persistent_failure_is_logged(self, tmp_dir):
+        audio = str(tmp_dir / "audio.wav")
+        with open(audio, "wb") as f:
+            f.write(b"fake")
+        with patch("ascii_player.audio.os.remove", side_effect=OSError("locked")) as remove:
+            with patch("ascii_player.audio.time.sleep") as sleep:
+                with patch("ascii_player.audio.logger") as log:
+                    cleanup_audio(audio)
+        assert remove.call_count == 3
+        assert sleep.call_count <= 4
+        assert any("Failed to remove" in str(call) for call in log.warning.call_args_list)
+

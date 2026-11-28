@@ -3,6 +3,7 @@
 import os
 from typing import Optional, Tuple
 
+from rich.markup import escape
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, ScrollableContainer, Vertical
@@ -32,6 +33,19 @@ from ..images import (
 from ..prompt_gen import STARTER_PROMPTS, available_banner_fonts
 from .helpers import LYRICS_EXT, VIDEO_EXT, _load_recent
 
+_TYPE_TAGS = {
+    "dir": "[D]",
+    "video": "[V]",
+    "image": "[I]",
+    "lyrics": "[L]",
+}
+
+
+def _queued_marker(app, path: str) -> str:
+    """Non-color marker shown on rows already in the playback queue."""
+    playlist = getattr(app, "_playlist", ()) or ()
+    return "✓ " if any(item.get("path") == path for item in playlist) else ""
+
 
 class PlaylistPanel(Static):
     """Show and manage the playback queue."""
@@ -45,9 +59,21 @@ class PlaylistPanel(Static):
             yield Label("PLAYLIST", id="playlist-title")
             yield ListView(id="playlist-list", classes="playlist-list")
             with Horizontal(classes="playlist-buttons"):
-                yield Button("Clear", id="btn-clear-pl", compact=True)
-                yield Button("Prev", id="btn-prev-pl", compact=True)
-                yield Button("Next", id="btn-next-pl", compact=True)
+                yield Button(
+                    "Clear", id="btn-clear-pl", compact=True, tooltip="Empty the queue"
+                )
+                yield Button(
+                    "Prev",
+                    id="btn-prev-pl",
+                    compact=True,
+                    tooltip="Play the previous queued item (Ctrl+Left)",
+                )
+                yield Button(
+                    "Next",
+                    id="btn-next-pl",
+                    compact=True,
+                    tooltip="Play the next queued item (Ctrl+Right)",
+                )
 
     def refresh_playlist(self, playlist, index):
         lv = self.query_one("#playlist-list", ListView)
@@ -92,11 +118,25 @@ class FileBrowser(Static):
                 )
             yield ListView(id="file-list", classes="file-list")
             with Horizontal(classes="browser-buttons"):
-                yield Button("Up", id="btn-up", compact=True)
-                yield Button("Home", id="btn-home", compact=True)
-                yield Button("Refresh", id="btn-refresh", compact=True)
-                yield Button("Paste", id="btn-paste", compact=True)
-                yield Button("Browse", id="btn-browse", compact=True)
+                yield Button("Up", id="btn-up", compact=True, tooltip="Parent folder (Backspace)")
+                yield Button(
+                    "Home",
+                    id="btn-home",
+                    compact=True,
+                    tooltip="Jump to your home folder",
+                )
+                yield Button(
+                    "Refresh", id="btn-refresh", compact=True, tooltip="Re-read this folder"
+                )
+                yield Button(
+                    "Paste",
+                    id="btn-paste",
+                    compact=True,
+                    tooltip="Paste an image or URL from the clipboard (Ctrl+V)",
+                )
+                yield Button(
+                    "Browse", id="btn-browse", compact=True, tooltip="Open the file picker"
+                )
 
     def on_mount(self):
         self.refresh_files()
@@ -154,14 +194,19 @@ class FileBrowser(Static):
         except Exception:
             pass
         for name, path, kind in self.entries:
+            tag = _TYPE_TAGS.get(kind, "")
+            marker = _queued_marker(self.app, path)
             if kind == "dir":
-                line = f"[bold]{name}/[/bold]" if name != ".." else f"[dim]{name}[/dim]"
+                if name == "..  (parent directory)":
+                    line = f"{tag} {marker}[dim]{escape(name)}[/dim]"
+                else:
+                    line = f"{tag} {marker}[bold]{escape(name)}/[/bold]"
             elif kind == "video":
-                line = f"{name}"
+                line = f"{tag} {marker}{escape(name)}"
             elif kind == "image":
-                line = f"[magenta]{name}[/magenta]"
+                line = f"{tag} {marker}[magenta]{escape(name)}[/magenta]"
             else:
-                line = f"[cyan]{name}[/cyan]"
+                line = f"{tag} {marker}[cyan]{escape(name)}[/cyan]"
             self._seq += 1
             item = ListItem(Static(line, classes=f"file-item {kind}"), id=f"file-{self._seq}")
             item.data_kind = kind
@@ -265,22 +310,22 @@ class FileBrowser(Static):
     def on_dir_input_submitted(self, event):
         raw = event.input.value.strip()
         expanded = os.path.expanduser(raw)
-        log = self.app.query_one("#log")
+        app = self.app
         if os.path.isdir(expanded):
             self.current_dir = os.path.abspath(expanded)
             self.refresh_files()
-            log.write(f"[dim]Changed directory: {self.current_dir}[/dim]")
+            app._log_line("dim", f"Changed directory: {self.current_dir}")
         elif os.path.isfile(expanded):
             ext = os.path.splitext(expanded)[1].lower()
             if ext in LYRICS_EXT:
-                self.app.select_file(expanded, "lyrics")
+                app.select_file(expanded, "lyrics")
             elif ext in IMAGE_EXT:
-                self.app.select_file(expanded, "image")
+                app.select_file(expanded, "image")
             else:
-                self.app.select_file(expanded, "video")
-                log.write("  Type the folder path and press Enter to jump there.")
+                app.select_file(expanded, "video")
+            app._log_line("green", f"Loaded file: {os.path.basename(expanded)}")
         else:
-            log.write(f"[yellow]Not a valid path: {raw}[/yellow]")
+            app._report_error(f"Not a valid path: {raw}", tag="OPEN")
 
     def _format_size(self, size):
         for unit in ("B", "KB", "MB", "GB"):
@@ -406,9 +451,21 @@ class SettingsPanel(Static):
         with Vertical(classes="settings-inner"):
             yield Label("STYLE", classes="group-title")
             with Horizontal(classes="toggle-row"):
-                yield Checkbox("Auto-fit", value=True, id="check-autofit", compact=True)
+                yield Checkbox(
+                    "Auto-fit",
+                    value=True,
+                    id="check-autofit",
+                    compact=True,
+                    tooltip="Fit the canvas to the viewport (0 to toggle)",
+                )
             with Horizontal(classes="toggle-row"):
-                yield Checkbox("Color (RGB)", value=False, id="select-color", compact=True)
+                yield Checkbox(
+                    "Color (RGB)",
+                    value=False,
+                    id="select-color",
+                    compact=True,
+                    tooltip="Render/copy/export with ANSI TrueColor instead of monochrome",
+                )
             with Horizontal(classes="setting-row"):
                 yield Label("Width:", classes="setting-label")
                 yield Input(
@@ -417,6 +474,7 @@ class SettingsPanel(Static):
                     type="integer",
                     classes="setting-input",
                     compact=True,
+                    tooltip="Fixed canvas width in columns (ignored while Auto-fit is on)",
                 )
             with Horizontal(classes="setting-row"):
                 yield Label("Preset:", classes="setting-label")
@@ -427,6 +485,7 @@ class SettingsPanel(Static):
                     allow_blank=False,
                     classes="setting-select",
                     compact=True,
+                    tooltip="Character ramp / pixel density preset",
                 )
             with Horizontal(classes="setting-row"):
                 yield Label("Chars:", classes="setting-label")
@@ -436,6 +495,7 @@ class SettingsPanel(Static):
                     placeholder="custom ramp",
                     classes="setting-input",
                     compact=True,
+                    tooltip="Override the preset with a custom dark-to-light character ramp",
                 )
             with Horizontal(classes="setting-row"):
                 yield Label("Aspect:", classes="setting-label")
@@ -444,6 +504,7 @@ class SettingsPanel(Static):
                     id="input-aspect",
                     classes="setting-input",
                     compact=True,
+                    tooltip="Character aspect correction (0.2 - 2.0)",
                 )
 
             yield Label("IMAGE & FX", classes="group-title")
@@ -456,6 +517,7 @@ class SettingsPanel(Static):
                     allow_blank=False,
                     classes="setting-select",
                     compact=True,
+                    tooltip="Edge / blur filter applied before ASCII conversion",
                 )
             with Horizontal(classes="setting-row"):
                 yield Label("Contrast:", classes="setting-label")
@@ -464,6 +526,7 @@ class SettingsPanel(Static):
                     id="input-contrast",
                     classes="setting-input",
                     compact=True,
+                    tooltip="Contrast multiplier (0.2 - 3.5)",
                 )
             with Horizontal(classes="setting-row"):
                 yield Label("Bright:", classes="setting-label")
@@ -472,24 +535,85 @@ class SettingsPanel(Static):
                     id="input-brightness",
                     classes="setting-input",
                     compact=True,
+                    tooltip="Brightness multiplier (0.2 - 3.0)",
                 )
             with Horizontal(classes="toggle-grid"):
-                yield Checkbox("Dither", value=False, id="select-dither", compact=True)
-                yield Checkbox("Invert", value=False, id="select-invert", compact=True)
+                yield Checkbox(
+                    "Dither",
+                    value=False,
+                    id="select-dither",
+                    compact=True,
+                    tooltip="Use error-diffusion dithering",
+                )
+                yield Checkbox(
+                    "Invert",
+                    value=False,
+                    id="select-invert",
+                    compact=True,
+                    tooltip="Invert image brightness",
+                )
             with Horizontal(classes="toggle-grid"):
-                yield Checkbox("Crop", value=False, id="select-crop", compact=True)
-                yield Checkbox("Loop", value=False, id="select-loop", compact=True)
+                yield Checkbox(
+                    "Crop",
+                    value=False,
+                    id="select-crop",
+                    compact=True,
+                    tooltip="Crop to the canvas instead of stretching",
+                )
+                yield Checkbox(
+                    "Loop",
+                    value=False,
+                    id="select-loop",
+                    compact=True,
+                    tooltip="Loop animated GIF / video playback",
+                )
 
             yield Label("POST-FX (STACKABLE)", classes="group-title")
             with Horizontal(classes="toggle-grid"):
-                yield Checkbox("Scanlines", value=False, id="fx-scanlines", compact=True)
-                yield Checkbox("Chromatic", value=False, id="fx-chromatic", compact=True)
+                yield Checkbox(
+                    "Scanlines",
+                    value=False,
+                    id="fx-scanlines",
+                    compact=True,
+                    tooltip="Overlay CRT scanlines",
+                )
+                yield Checkbox(
+                    "Chromatic",
+                    value=False,
+                    id="fx-chromatic",
+                    compact=True,
+                    tooltip="Offset color channels (chromatic aberration)",
+                )
             with Horizontal(classes="toggle-grid"):
-                yield Checkbox("Vignette", value=False, id="fx-vignette", compact=True)
-                yield Checkbox("Bloom", value=False, id="fx-bloom", compact=True)
+                yield Checkbox(
+                    "Vignette",
+                    value=False,
+                    id="fx-vignette",
+                    compact=True,
+                    tooltip="Darken the edges",
+                )
+                yield Checkbox(
+                    "Bloom",
+                    value=False,
+                    id="fx-bloom",
+                    compact=True,
+                    tooltip="Glow around bright characters",
+                )
             with Horizontal(classes="toggle-grid"):
-                yield Checkbox("Halftone", value=False, id="fx-halftone", compact=True)
-                yield Checkbox("Glitch", value=False, id="fx-glitch", compact=True)
+                yield Checkbox(
+                    "Halftone",
+                    value=False,
+                    id="fx-halftone",
+                    compact=True,
+                    tooltip="Halftone dot pattern",
+                )
+                yield Checkbox(
+                    "Glitch",
+                    value=False,
+                    id="fx-glitch",
+                    compact=True,
+                    tooltip="Digital glitch distortion",
+                )
 
             with Horizontal(classes="setting-row"):
                 yield Label("Anim:", classes="setting-label")
@@ -500,6 +624,7 @@ class SettingsPanel(Static):
                     allow_blank=False,
                     classes="setting-select",
                     compact=True,
+                    tooltip="Reveal animation for newly rendered art",
                 )
 
             yield Label("PLAYBACK & EXPORT", classes="group-title")
@@ -512,10 +637,23 @@ class SettingsPanel(Static):
                     classes="setting-input",
                     placeholder="auto",
                     compact=True,
+                    tooltip="Frame rate for pop-out video playback (blank = auto)",
                 )
             with Horizontal(classes="toggle-grid"):
-                yield Checkbox("Audio", value=True, id="select-audio", compact=True)
-                yield Checkbox("Cache", value=False, id="select-cache", compact=True)
+                yield Checkbox(
+                    "Audio",
+                    value=True,
+                    id="select-audio",
+                    compact=True,
+                    tooltip="Play audio in pop-out playback",
+                )
+                yield Checkbox(
+                    "Cache",
+                    value=False,
+                    id="select-cache",
+                    compact=True,
+                    tooltip="Cache decoded frames on disk",
+                )
             with Horizontal(classes="setting-row"):
                 yield Label("Lyrics:", classes="setting-label")
                 yield Select(
@@ -525,6 +663,7 @@ class SettingsPanel(Static):
                     allow_blank=False,
                     classes="setting-select",
                     compact=True,
+                    tooltip="Lyrics display mode for pop-out playback",
                 )
             with Horizontal(classes="setting-row"):
                 yield Label("Export:", classes="setting-label")
@@ -553,6 +692,7 @@ class SettingsPanel(Static):
                     classes="setting-input",
                     placeholder="output filename",
                     compact=True,
+                    tooltip="Default export filename stem",
                 )
 
     def collect(self):
@@ -656,8 +796,12 @@ class RecentList(Static):
         lv.clear()
         for path in self.recent:
             name = os.path.basename(path.rstrip("/\\")) or path
+            marker = _queued_marker(self.app, path)
             self._recent_seq += 1
-            item = ListItem(Static(name, classes="recent-item"), id=f"recent-{self._recent_seq}")
+            item = ListItem(
+                Static(f"{marker}{escape(name)}", classes="recent-item"),
+                id=f"recent-{self._recent_seq}",
+            )
             item.data_path = path
             lv.append(item)
         if not self.recent:
@@ -691,7 +835,11 @@ class CommandPreview(Static):
 
     def compose(self) -> ComposeResult:
         yield Label("COMMAND", classes="group-title")
-        yield Static("", id="cmd-preview", classes="cmd-preview")
+        preview = Static("", id="cmd-preview", classes="cmd-preview")
+        # Static has no tooltip constructor argument in Textual; the property
+        # is assignable after construction.
+        preview.tooltip = "Exact CLI command used by pop-out playback and export"
+        yield preview
 
     def show(self, text):
         self.query_one("#cmd-preview").update(text or "(nothing ready to play)")
@@ -703,10 +851,34 @@ class InlinePreview(Static):
     def compose(self) -> ComposeResult:
         with Horizontal(id="art-bar"):
             yield Static("", id="art-bar-spacer")
-            yield Button("fit", id="btn-autofit", classes="chip", compact=True)
-            yield Button("type over", id="btn-edit-in-draw", classes="chip", compact=True)
-            yield Button("copy", id="btn-copy-ascii", classes="chip", compact=True)
-            yield Button("save", id="btn-export-now", classes="chip", compact=True)
+            yield Button(
+                "fit",
+                id="btn-autofit",
+                classes="chip",
+                compact=True,
+                tooltip="Auto-fit the canvas to the viewport (0)",
+            )
+            yield Button(
+                "type over",
+                id="btn-edit-in-draw",
+                classes="chip",
+                compact=True,
+                tooltip="Import this art into the Type canvas (Ctrl+D)",
+            )
+            yield Button(
+                "copy",
+                id="btn-copy-ascii",
+                classes="chip",
+                compact=True,
+                tooltip="Copy visible ASCII to clipboard (Ctrl+Y)",
+            )
+            yield Button(
+                "save",
+                id="btn-export-now",
+                classes="chip",
+                compact=True,
+                tooltip="Export PNG / HTML / ANSI / TXT / GIF (Ctrl+E)",
+            )
         with ScrollableContainer(id="canvas-scroll"):
             yield Static(
                 "Select a file, type a prompt, paste a URL, or start webcam.",
@@ -772,25 +944,75 @@ class StatusBar(Static):
 
 
 class StudioTopBar(Static):
-    """Minimalist 1-line OpenCode/Claude-style top bar with Studio | Type tabs."""
+    """Minimalist 1-line top bar with Studio | Type tabs."""
 
     def compose(self) -> ComposeResult:
         yield Horizontal(
             Static("◆ ascii-studio", id="brand-mark", markup=False),
-            Button("Studio", id="btn-mode-studio", classes="mode-tab active", compact=True),
-            Button("Type", id="btn-mode-draw", classes="mode-tab", compact=True),
+            Button(
+                "Studio",
+                id="btn-mode-studio",
+                classes="mode-tab active",
+                compact=True,
+                tooltip="Studio canvas mode",
+            ),
+            Button(
+                "Type",
+                id="btn-mode-draw",
+                classes="mode-tab",
+                compact=True,
+                tooltip="Pure-keyboard terminal ASCII mode (Ctrl+D)",
+            ),
             Static("·  ready", id="canvas-meta", markup=False),
-            Button("mono", id="btn-color-toggle", classes="chip", compact=True),
-            Button("files ^O", id="btn-toggle-files", classes="chip", compact=True),
-            Button("style ^B", id="btn-toggle-style", classes="chip", compact=True),
-            Button("^K", id="btn-open-palette", classes="chip accent-chip", compact=True),
+            Button(
+                "mono",
+                id="btn-color-toggle",
+                classes="chip",
+                compact=True,
+                tooltip="Toggle TrueColor / monochrome output",
+            ),
+            Button(
+                "files ^O",
+                id="btn-toggle-files",
+                classes="chip",
+                compact=True,
+                tooltip="Open the Files drawer (Ctrl+O)",
+            ),
+            Button(
+                "style ^B",
+                id="btn-toggle-style",
+                classes="chip",
+                compact=True,
+                tooltip="Open the Style Inspector (Ctrl+B)",
+            ),
+            Button(
+                "^K",
+                id="btn-open-palette",
+                classes="chip accent-chip",
+                compact=True,
+                tooltip="Open the command palette (Ctrl+K)",
+            ),
+            Button(
+                "^P help",
+                id="btn-help",
+                classes="chip",
+                compact=True,
+                tooltip="Show keyboard shortcuts and commands (Ctrl+P)",
+            ),
+            Button(
+                "^L log",
+                id="btn-log-top",
+                classes="chip",
+                compact=True,
+                tooltip="Show / hide the detailed activity log (Ctrl+L)",
+            ),
             id="topbar-row",
         )
 
 
 _HERO_PALETTES = {
-    "opencode": ((245, 158, 11), (244, 114, 182), (167, 139, 250)),
-    "claude": ((217, 119, 87), (245, 158, 11), (245, 240, 235)),
+    "amber": ((245, 158, 11), (244, 114, 182), (167, 139, 250)),
+    "sand": ((217, 119, 87), (245, 158, 11), (245, 240, 235)),
     "dark": ((88, 166, 255), (129, 140, 248), (192, 132, 252)),
     "retro": ((255, 176, 0), (255, 120, 0), (255, 228, 163)),
     "steins_gate": ((255, 140, 36), (96, 165, 250), (56, 189, 248)),
@@ -799,13 +1021,13 @@ _HERO_PALETTES = {
 }
 
 
-def render_gradient_logo(wordmark: str, theme_name: str = "opencode", phase: float = 0.0):
+def render_gradient_logo(wordmark: str, theme_name: str = "amber", phase: float = 0.0):
     """Render the welcome ASCII wordmark with a smooth TrueColor gradient."""
     import math
 
     from rich.text import Text
 
-    c0, c1, c2 = _HERO_PALETTES.get(theme_name, _HERO_PALETTES["opencode"])
+    c0, c1, c2 = _HERO_PALETTES.get(theme_name, _HERO_PALETTES["amber"])
     lines = wordmark.splitlines()
     width = max((len(line) for line in lines), default=1) or 1
     out = Text(no_wrap=True)
@@ -832,7 +1054,7 @@ def render_gradient_logo(wordmark: str, theme_name: str = "opencode", phase: flo
 
 
 class WelcomeHero(Static):
-    """Centered OpenCode / Claude Code welcome screen shown when canvas is idle."""
+    """Centered welcome screen shown when canvas is idle."""
 
     _WORDMARK = (
         " █████╗ ███████╗ ██████╗██╗██╗    ███████╗████████╗██╗   ██╗██████╗ ██╗ ██████╗ \n"
@@ -916,7 +1138,7 @@ class WelcomeHero(Static):
 
 
 class OmniboxBar(Static):
-    """Floating OpenCode left-accent prompt card with live autocomplete popup."""
+    """Floating left-accent prompt card with live autocomplete popup."""
 
     def compose(self) -> ComposeResult:
         popup = OptionList(id="autocomplete-popup")
@@ -941,8 +1163,10 @@ class OmniboxBar(Static):
                         compact=True,
                     )
                 with Horizontal(id="omnibox-meta"):
-                    yield Static(
-                        "auto · classic · mono · fit · opencode",
-                        id="omnibox-pills",
-                        markup=False,
+                    yield Static("", id="omnibox-pills", markup=False)
+                    yield Button(
+                        "amber",
+                        id="btn-theme-pill",
+                        classes="chip accent-chip",
+                        compact=True,
                     )

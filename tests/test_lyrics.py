@@ -100,6 +100,33 @@ class TestParseLRC:
         lyrics = parse_lrc(str(path))
         assert lyrics.lines == []
 
+    def test_multiple_timestamps_share_text(self, tmp_dir):
+        path = tmp_dir / "multi.lrc"
+        path.write_text(
+            "[00:01.00][00:05.00]Repeated line\n[01:02.50]Last line\n", encoding="utf-8"
+        )
+        lyrics = parse_lrc(str(path))
+        assert [(line.timestamp, line.text) for line in lyrics.lines] == [
+            (1.0, "Repeated line"),
+            (5.0, "Repeated line"),
+            (62.5, "Last line"),
+        ]
+
+    def test_single_timestamp_unchanged(self, tmp_dir):
+        path = tmp_dir / "single.lrc"
+        path.write_text("[00:03.25]Only line\n", encoding="utf-8")
+        lyrics = parse_lrc(str(path))
+        assert [(line.timestamp, line.text) for line in lyrics.lines] == [(3.25, "Only line")]
+
+    def test_metadata_lines_remain_metadata(self, tmp_dir):
+        path = tmp_dir / "meta.lrc"
+        path.write_text(
+            "[ti:Song Title]\n[ar:Artist]\n[length:03:00]\n[00:02.00]Lyric\n", encoding="utf-8"
+        )
+        lyrics = parse_lrc(str(path))
+        assert lyrics.metadata == {"ti": "Song Title", "ar": "Artist", "length": "03:00"}
+        assert [(line.timestamp, line.text) for line in lyrics.lines] == [(2.0, "Lyric")]
+
 
 class TestParseSRT:
     def test_basic_srt(self, srt_file):
@@ -125,6 +152,32 @@ class TestParseASS:
     def test_ass_nonexistent(self, tmp_dir):
         lyrics = parse_ass(str(tmp_dir / "nope.ass"))
         assert lyrics.lines == []
+
+    def test_ass_without_format_line(self, tmp_dir):
+        path = tmp_dir / "noformat.ass"
+        path.write_text(
+            "[Events]\n"
+            "Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,First line\n"
+            "Dialogue: 0,0:00:07.00,0:00:10.00,Default,,0,0,0,,Second line\n",
+            encoding="utf-8",
+        )
+        lyrics = parse_ass(str(path))
+        assert [(line.timestamp, line.text) for line in lyrics.lines] == [
+            (1.0, "First line"),
+            (7.0, "Second line"),
+        ]
+
+    def test_ass_format_without_start(self, tmp_dir):
+        path = tmp_dir / "nostart.ass"
+        path.write_text(
+            "[Events]\n"
+            "Format: Layer,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
+            "Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,First line\n"
+            "Dialogue: 0,0:00:06.00,0:00:09.00,Default,,0,0,0,,Second line\n",
+            encoding="utf-8",
+        )
+        lyrics = parse_ass(str(path))
+        assert [line.timestamp for line in lyrics.lines] == [1.0, 6.0]
 
 
 class TestLoadLyrics:

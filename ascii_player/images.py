@@ -1326,8 +1326,11 @@ def save_grid_png(
     return path
 
 
-def save_grid(grid: AsciiGrid, path: str, color: bool = True) -> str:
-    """Write a rendered grid as .txt, .ans, .html, or .png and return the path."""
+def save_grid(grid: AsciiGrid, path: str, color: bool = False) -> str:
+    """Write a rendered grid as .txt, .ans, .html, or .png and return the path.
+
+    Only .ans and .png use colour; .txt is always plain text.
+    """
     extension = os.path.splitext(path)[1].lower()
     if extension == ".png":
         return save_grid_png(grid, path, color=color)
@@ -1337,7 +1340,7 @@ def save_grid(grid: AsciiGrid, path: str, color: bool = True) -> str:
             handle.write(document)
     elif extension == ".ans":
         with open(path, "w", encoding="utf-8") as handle:
-            handle.write("\n".join(grid_lines(grid, color=True)))
+            handle.write("\n".join(grid_lines(grid, color=color)))
             handle.write("\n")
     else:
         with open(path, "w", encoding="utf-8") as handle:

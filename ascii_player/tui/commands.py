@@ -113,7 +113,7 @@ SLASH_COMMANDS: List[SlashCommand] = [
     SlashCommand(
         "/theme",
         "/theme [name]",
-        "Set or cycle theme (opencode, claude, dark, retro, ...)",
+        "Set or cycle theme (amber, sand, dark, retro, ...)",
         "view",
     ),
     SlashCommand("/log", "/log", "Toggle activity log drawer (Ctrl+L)", "view"),

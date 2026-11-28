@@ -5,7 +5,12 @@ import tempfile
 
 import pytest
 
-from ascii_player.exporter import PIL_AVAILABLE, ASCIIExporter, save_ascii_gallery
+from ascii_player.exporter import (
+    PIL_AVAILABLE,
+    ASCIIExporter,
+    save_ascii_gallery,
+    save_ascii_screenshot,
+)
 
 
 def requires_pil(func):
@@ -152,6 +157,24 @@ class TestSaveAsciiGallery:
     def test_empty_frames_returns_none(self, tmp_dir):
         result = save_ascii_gallery([], str(tmp_dir / "gallery.txt"))
         assert result is None
+
+    def test_npz_path_is_normalised_and_exists(self, tmp_dir):
+        output = str(tmp_dir / "gallery")
+        result = save_ascii_gallery([(0, ["abc", "def"])], output, fmt="npz")
+        assert result == output + ".npz"
+        assert os.path.exists(result)
+
+
+class TestSaveAsciiScreenshot:
+    @requires_pil
+    def test_rapid_shots_have_distinct_names(self, monkeypatch, tmp_dir):
+        monkeypatch.chdir(tmp_dir)
+        first = save_ascii_screenshot(["abc", "def"], frameno=7, width=3)
+        second = save_ascii_screenshot(["abc", "def"], frameno=7, width=3)
+        assert first and second
+        assert first != second
+        assert os.path.exists(first)
+        assert os.path.exists(second)
 
 
 class TestLyricsBurnIn:

@@ -53,7 +53,7 @@ class Renderer(ABC):
     @abstractmethod
     def render(self, *args, **kwargs) -> List[str]:
         """Render the output.
-        
+
         Returns:
             List of strings to display
         """
@@ -232,11 +232,11 @@ class RendererFactory:
     @staticmethod
     def create(mode: str, **kwargs) -> Optional[Renderer]:
         """Create a renderer based on the mode.
-        
+
         Args:
             mode: Renderer mode ("split", "fullscreen")
             **kwargs: Additional arguments for the renderer
-            
+
         Returns:
             Renderer instance or None
         """

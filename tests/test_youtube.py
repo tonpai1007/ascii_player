@@ -3,6 +3,8 @@
 import subprocess
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from ascii_player.youtube import cleanup_temp_file, download_youtube_video, is_youtube_url
 
 
@@ -46,7 +48,10 @@ class TestDownloadYoutubeVideo:
                 download_youtube_video("https://youtube.com/watch?v=test")
 
     def test_returns_none_on_timeout(self):
-        with patch("ascii_player.youtube.subprocess.run", side_effect=subprocess.TimeoutExpired("yt-dlp", 300)):
+        with patch(
+            "ascii_player.youtube.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("yt-dlp", 300),
+        ):
             with pytest.raises(SystemExit):
                 download_youtube_video("https://youtube.com/watch?v=test")
 
@@ -63,6 +68,3 @@ class TestCleanupTempFile:
 
     def test_nonexistent_safe(self):
         cleanup_temp_file("/nonexistent/file.mp4")
-
-
-import pytest

@@ -186,7 +186,7 @@ def test_save_grid_txt_ans_html(tmp_path):
     ans = tmp_path / "out.ans"
     htmlp = tmp_path / "out.html"
     save_grid(grid, str(txt))
-    save_grid(grid, str(ans))
+    save_grid(grid, str(ans), color=True)
     save_grid(grid, str(htmlp))
     assert txt.read_text(encoding="utf-8").strip() != ""
     ans_text = ans.read_text(encoding="utf-8")
@@ -196,9 +196,25 @@ def test_save_grid_txt_ans_html(tmp_path):
     assert "<span" in html_text
 
 
+def test_save_grid_color_honored_by_ans_and_txt(tmp_path):
+    grid = image_to_grid(Image.new("RGB", (8, 4), (220, 40, 90)), width=4, preset="classic")
+    colored = tmp_path / "color.ans"
+    plain = tmp_path / "plain.ans"
+    txt = tmp_path / "color.txt"
+    save_grid(grid, str(colored), color=True)
+    save_grid(grid, str(plain), color=False)
+    save_grid(grid, str(txt), color=True)
+
+    assert "\x1b[38;2;" in colored.read_text(encoding="utf-8")
+    assert "\x1b[38;2;" not in plain.read_text(encoding="utf-8")
+    assert "\x1b[" not in txt.read_text(encoding="utf-8")
+
+
 def test_grid_to_html_escapes():
     html = grid_to_html(image_to_grid(Image.new("RGB", (4, 2), (1, 2, 3)), width=2))
-    assert "<" not in html.replace("<pre", "").replace("</pre>", "").replace("<span", "").replace("</span>", "") or True
+    stripped = html.replace("<pre", "").replace("</pre>", "")
+    stripped = stripped.replace("<span", "").replace("</span>", "")
+    assert "<" not in stripped or True
 
 
 def test_save_clipboard_image(tmp_path):

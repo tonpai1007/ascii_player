@@ -231,3 +231,45 @@ class TestMainUrlResolution:
             entry.main()
         assert exc.value.code == 1
         assert "did not resolve to a playable video or image" in capsys.readouterr().out
+
+
+class TestMainImageExport:
+    def test_gif_export_passes_color_flag(self, monkeypatch, capsys, tmp_path):
+        args = _main_args(
+            video=str(tmp_path / "pic.png"),
+            export="gif",
+            output=str(tmp_path / "out.gif"),
+            color=True,
+        )
+        _patch_main(monkeypatch, args)
+        calls = {}
+
+        def fake_export(source, path, **kwargs):
+            calls.update(source=source, path=path, **kwargs)
+            return path
+
+        monkeypatch.setattr("ascii_player.image_player.export_image", fake_export)
+        entry.main()
+        capsys.readouterr()
+        assert calls["color"] is True
+        assert calls["path"] == args.output
+
+    def test_ans_export_passes_color_flag(self, monkeypatch, capsys, tmp_path):
+        args = _main_args(
+            video=str(tmp_path / "pic.png"),
+            export="ans",
+            output=str(tmp_path / "out.ans"),
+            color=False,
+        )
+        _patch_main(monkeypatch, args)
+        calls = {}
+
+        def fake_export(source, path, **kwargs):
+            calls.update(source=source, path=path, **kwargs)
+            return path
+
+        monkeypatch.setattr("ascii_player.image_player.export_still", fake_export)
+        entry.main()
+        capsys.readouterr()
+        assert calls["color"] is False
+        assert calls["path"] == args.output

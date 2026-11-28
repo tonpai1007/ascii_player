@@ -315,7 +315,7 @@ class PlaybackControls:
 
     def get_volume(self) -> int:
         """Get current volume (0-200%).
-        
+
         Returns:
             Current volume level
         """
@@ -324,7 +324,7 @@ class PlaybackControls:
 
     def get_speed(self) -> float:
         """Get current playback speed.
-        
+
         Returns:
             Current speed multiplier
         """
@@ -333,7 +333,7 @@ class PlaybackControls:
 
     def is_paused(self) -> bool:
         """Check if playback is paused.
-        
+
         Returns:
             True if paused
         """
@@ -342,7 +342,7 @@ class PlaybackControls:
 
     def should_quit(self) -> bool:
         """Check if quit was requested.
-        
+
         Returns:
             True if quit requested
         """
@@ -351,7 +351,7 @@ class PlaybackControls:
 
     def pop_screenshot_request(self) -> bool:
         """Consume a screenshot request flag.
-        
+
         Returns:
             True if screenshot was requested (flag reset)
         """
@@ -362,7 +362,7 @@ class PlaybackControls:
 
     def is_ab_loop_enabled(self) -> bool:
         """Check if A-B loop is on.
-        
+
         Returns:
             True if A-B loop enabled
         """
@@ -371,7 +371,7 @@ class PlaybackControls:
 
     def set_ab_points(self, start: Optional[float] = None, end: Optional[float] = None) -> None:
         """Manually set A-B points (for TUI integration).
-        
+
         Args:
             start: Start time in seconds
             end: End time in seconds
@@ -384,7 +384,7 @@ class PlaybackControls:
 
     def ab_bounds(self) -> Tuple[Optional[float], Optional[float]]:
         """Get current A-B loop bounds.
-        
+
         Returns:
             Tuple (start, end) or (None, None) if loop not fully set
         """
@@ -397,7 +397,7 @@ class PlaybackControls:
 
     def get_seek(self) -> int:
         """Get and reset seek amount.
-        
+
         Returns:
             Seek amount in seconds
         """
@@ -408,10 +408,10 @@ class PlaybackControls:
 
     def render_controls(self, width: int) -> Tuple[str, str]:
         """Render control overlay.
-        
+
         Args:
             width: Output width
-            
+
         Returns:
             Tuple of (control bar string, status line string)
         """

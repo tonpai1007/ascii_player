@@ -1,12 +1,14 @@
-"""Main Textual application for ASCII Art Studio (OpenCode / Claude Code CLI UX)."""
+"""Main Textual application for ASCII Art Studio."""
 
 import os
 import random
 import sys
 import time
+from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
+from rich.markup import escape
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -107,8 +109,29 @@ except ImportError:
 _SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
 
+class _LayoutMode(str, Enum):
+    """Single source of truth for responsive density and drawer policy."""
+
+    COMPACT = "compact"  # very narrow or very short: everything condensed
+    NARROW = "narrow"  # narrow/short terminal: condensed chrome, compact hero
+    MEDIUM = "medium"  # mid-width: full hero, still mutually exclusive drawers
+    WIDE = "wide"  # roomy: full chrome, drawers may coexist
+
+    @property
+    def is_narrow(self) -> bool:
+        return self in (_LayoutMode.COMPACT, _LayoutMode.NARROW)
+
+    @property
+    def compact_hero(self) -> bool:
+        return self in (_LayoutMode.COMPACT, _LayoutMode.NARROW)
+
+    @property
+    def exclusive_drawers(self) -> bool:
+        return self is not _LayoutMode.WIDE
+
+
 class ASCIITuiApp(App):
-    """Canvas-first ASCII Art Studio modeled after OpenCode / Claude Code."""
+    """Canvas-first ASCII Art Studio."""
 
     ENABLE_COMMAND_PALETTE = False
     CSS_PATH = "styles.tcss"
@@ -209,6 +232,7 @@ class ASCIITuiApp(App):
         self._hero_phase: float = 0.0
         self._hero_timer = None
         self._loading_settings: bool = False
+        self._layout_mode: _LayoutMode = _LayoutMode.WIDE
 
     def compose(self) -> ComposeResult:
         yield StudioTopBar()
@@ -224,7 +248,13 @@ class ASCIITuiApp(App):
                         yield UrlPanel()
                     with TabPane("Webcam", id="tab-webcam"):
                         yield WebcamPanel()
-                with Collapsible(title="Recent & Queue", id="drawer-library", collapsed=True):
+                recent_count = len(_load_recent())
+                lib_title = (
+                    f"Recent & Queue ({recent_count})" if recent_count else "Recent & Queue"
+                )
+                with Collapsible(
+                    title=lib_title, id="drawer-library", collapsed=not recent_count
+                ):
                     yield RecentList()
                     yield PlaylistPanel()
 
@@ -241,15 +271,26 @@ class ASCIITuiApp(App):
                 yield SettingsPanel()
                 yield CommandPreview()
                 with Horizontal(classes="inspector-actions"):
-                    yield Button("Play (P)", id="btn-play", variant="success", compact=True)
-                    yield Button("Log", id="btn-toggle-log", compact=True)
+                    yield Button(
+                        "Play (P)",
+                        id="btn-play",
+                        variant="success",
+                        compact=True,
+                        tooltip="Pop out the selected media in a terminal window (P)",
+                    )
+                    yield Button(
+                        "Log",
+                        id="btn-toggle-log",
+                        compact=True,
+                        tooltip="Show / hide the detailed activity log (Ctrl+L)",
+                    )
 
         yield StatusBar()
         yield Footer()
 
     def on_mount(self):
         self.title = f"ASCII Art Studio v{__version__}"
-        self.sub_title = "OpenCode / Claude Code CLI Mode"
+        self.sub_title = "ASCII CLI Mode"
         log = self.query_one("#log", RichLog)
         log.write("[bold]ASCII Studio[/bold] -- type a prompt, path, URL, /command, or @file")
 
@@ -266,9 +307,11 @@ class ASCIITuiApp(App):
         apply_theme(self, self._current_theme)
         self._canvas_last_grid = text_to_grid(WelcomeHero._WORDMARK.splitlines())
         self._sync_toolbar_buttons()
+        self._sync_mode_tabs()
         self._update_preview()
         self._apply_responsive_layout()
         self._update_canvas_meta(None)
+        self._update_library_header()
         self._start_hero_shimmer()
         self.query_one("#omnibox", Input).focus()
 
@@ -298,8 +341,11 @@ class ASCIITuiApp(App):
                 if hero.has_class("hidden"):
                     return
                 self._hero_phase = (self._hero_phase + 0.14) % 6.28318
-                compact = (self.size.width or 120) < 92
-                hero.update_logo(self._current_theme, phase=self._hero_phase, compact=compact)
+                hero.update_logo(
+                    self._current_theme,
+                    phase=self._hero_phase,
+                    compact=self._layout_mode.compact_hero,
+                )
             except NoMatches:
                 return
 
@@ -318,29 +364,40 @@ class ASCIITuiApp(App):
             return
         w = int(self.size.width or 120)
         h = int(self.size.height or 36)
-        narrow = (w < 96) or (h <= 26)
+        if w < 80 or h <= 24:
+            self._layout_mode = _LayoutMode.COMPACT
+        elif w < 96 or h <= 26:
+            self._layout_mode = _LayoutMode.NARROW
+        elif w < 115:
+            self._layout_mode = _LayoutMode.MEDIUM
+        else:
+            self._layout_mode = _LayoutMode.WIDE
+
+        mode = self._layout_mode
         try:
-            if narrow:
-                self.screen.add_class("narrow")
-            else:
-                self.screen.remove_class("narrow")
+            self.screen.set_class(mode.is_narrow, "narrow")
+            for other in _LayoutMode:
+                self.screen.set_class(mode is other, f"layout-{other.value}")
         except Exception:
             pass
         try:
             self.query_one("#brand-mark", Static).update(
-                "◆ studio" if w < 96 else "◆ ascii-studio"
+                "◆ studio" if mode.is_narrow else "◆ ascii-studio"
             )
         except Exception:
             pass
-        compact = w < 92
         try:
             self.query_one("#welcome-hero", WelcomeHero).update_logo(
-                self._current_theme, phase=self._hero_phase, compact=compact
+                self._current_theme, phase=self._hero_phase, compact=mode.compact_hero
             )
         except Exception:
             pass
         if self._canvas_source_tag == "HOME":
-            wm = WelcomeHero._COMPACT_WORDMARK if compact else WelcomeHero._WORDMARK
+            wm = (
+                WelcomeHero._COMPACT_WORDMARK
+                if mode.compact_hero
+                else WelcomeHero._WORDMARK
+            )
             self._canvas_last_grid = text_to_grid(wm.splitlines())
         self._update_key_hints()
 
@@ -373,8 +430,11 @@ class ASCIITuiApp(App):
         self._canvas_image = None
         self._canvas_frames = []
         self._canvas_direct_grid = None
-        compact = (self.size.width or 120) < 92
-        wm = WelcomeHero._COMPACT_WORDMARK if compact else WelcomeHero._WORDMARK
+        wm = (
+            WelcomeHero._COMPACT_WORDMARK
+            if self._layout_mode.compact_hero
+            else WelcomeHero._WORDMARK
+        )
         self._canvas_last_grid = text_to_grid(wm.splitlines())
         self._canvas_source_tag = "HOME"
         self._canvas_label = "ready"
@@ -425,18 +485,32 @@ class ASCIITuiApp(App):
         except Exception:
             pass
 
-    def _report_error(self, msg: str, tag: str = "ERROR"):
+    def _log_line(self, style: str, text: str):
+        """Write a styled log line, escaping all dynamic text (markup stays off-limits)."""
+        try:
+            self._log().write(f"[{style}]{escape(str(text))}[/{style}]")
+        except Exception:
+            pass
+
+    def _report_error(
+        self, msg: str, tag: str = "ERROR", notify: bool = True, prefix: bool = True
+    ):
+        """The single user-facing failure channel: status + activity + log + toast.
+
+        ``tag`` doubles as the visible severity prefix, so advisories can use
+        ``tag='WARN'`` without looking like hard errors. ``prefix=False`` keeps
+        an already-worded status such as ``Launch failed: <reason>`` intact.
+        """
         self._stop_spinner()
-        self._set_activity(f"[ERROR] {msg}", error=True)
-        self._set_status(f"[ERROR] {msg}")
-        try:
-            self._log().write(f"[red][{tag}] {msg}[/red]")
-        except Exception:
-            pass
-        try:
-            self.notify(msg, title=tag, severity="error", timeout=5)
-        except Exception:
-            pass
+        display = f"[{tag}] {msg}" if prefix else msg
+        self._set_activity(display, error=(tag == "ERROR"))
+        self._set_status(display)
+        self._log_line("red", display)
+        if notify:
+            try:
+                self.notify(msg, title=tag, severity="error", timeout=5)
+            except Exception:
+                pass
 
     # ---- state & timer helpers ----
 
@@ -516,21 +590,23 @@ class ASCIITuiApp(App):
         s = self._settings()
         try:
             color_btn = self.query_one("#btn-color-toggle", Button)
-            color_btn.label = "rgb" if s["color"] else "mono"
-            if s["color"]:
-                color_btn.add_class("active")
-            else:
-                color_btn.remove_class("active")
+            color_btn.label = "✓ rgb" if s["color"] else "mono"
+            color_btn.set_class(bool(s["color"]), "active")
+            color_btn.tooltip = (
+                "TrueColor ANSI output (on)" if s["color"] else "Monochrome output (on)"
+            )
         except Exception:
             pass
         try:
             fit_btn = self.query_one("#btn-autofit", Button)
             is_fit = bool(s.get("auto_fit", True))
-            fit_btn.label = "fit" if is_fit else f"w:{s['width']}"
-            if is_fit:
-                fit_btn.add_class("active")
-            else:
-                fit_btn.remove_class("active")
+            fit_btn.label = "✓ fit" if is_fit else f"w:{s['width']}"
+            fit_btn.set_class(is_fit, "active")
+            fit_btn.tooltip = (
+                "Canvas auto-fits the viewport (on)"
+                if is_fit
+                else f"Fixed width {s['width']} columns (auto-fit off)"
+            )
         except Exception:
             pass
         self._update_omnibox_pills()
@@ -551,9 +627,64 @@ class ASCIITuiApp(App):
             parts.append(fx)
         parts.extend(fx_list)
         fx_part = f" · fx:{'+'.join(parts)}" if parts else ""
-        pills = f"{engine} · {preset} · {color_tag} · {fit_tag}{fx_part} · {self._current_theme}"
+        pills = f"{engine} · {preset} · {color_tag} · {fit_tag}{fx_part} ·"
         try:
             self.query_one("#omnibox-pills", Static).update(pills)
+        except Exception:
+            pass
+        try:
+            self.query_one("#btn-theme-pill", Button).label = self._current_theme
+        except Exception:
+            pass
+
+    def _has_canvas_content(self) -> bool:
+        return bool(
+            self._canvas_last_grid is not None
+            or self._canvas_image is not None
+            or self._canvas_frames
+            or self._canvas_direct_grid is not None
+        )
+
+    def _sync_action_buttons(self):
+        """Disable actions that would fail, with a tooltip explaining why."""
+        playable = bool(self.selected_file)
+        drawable = self._active_mode == "draw" or self._has_canvas_content()
+        for selector, enabled, ready_tip, blocked_tip in (
+            (
+                "#btn-play",
+                playable,
+                "Play in a new terminal window (P)",
+                "Select a file, prompt result, or URL first (P)",
+            ),
+            (
+                "#btn-copy-ascii",
+                drawable,
+                "Copy ASCII to clipboard (Ctrl+Y)",
+                "Render some ASCII art first (Ctrl+Y)",
+            ),
+            (
+                "#btn-export-now",
+                drawable,
+                "Export ASCII to PNG / HTML / ANSI / TXT / GIF (Ctrl+E)",
+                "Render some ASCII art first (Ctrl+E)",
+            ),
+        ):
+            try:
+                button = self.query_one(selector, Button)
+                button.disabled = not enabled
+                button.tooltip = ready_tip if enabled else blocked_tip
+            except Exception:
+                pass
+
+    def _update_library_header(self):
+        """Keep the Recent & Queue title count and its default expansion in sync."""
+        try:
+            recent = getattr(self.query_one(RecentList), "recent", [])
+            count = len(recent) + len(self._playlist)
+            drawer = self.query_one("#drawer-library", Collapsible)
+            drawer.title = f"Recent & Queue ({count})" if count else "Recent & Queue"
+            if count and drawer.collapsed:
+                drawer.collapsed = False
         except Exception:
             pass
 
@@ -563,6 +694,7 @@ class ASCIITuiApp(App):
             self.query_one(CommandPreview).show(format_command_preview(args))
         else:
             self.query_one(CommandPreview).show("(nothing ready to pop-out)")
+        self._sync_action_buttons()
 
     def _update_canvas_meta(self, grid: Optional[AsciiGrid]):
         s = self._settings()
@@ -586,15 +718,18 @@ class ASCIITuiApp(App):
         except Exception:
             pass
         self._update_omnibox_pills()
+        self._sync_action_buttons()
 
     def _update_key_hints(self):
-        w = int(self.size.width or 120)
-        if w >= 100:
-            hints = "/ cmd · @ file · ^D type · ^K palette · ^T theme · ^Q quit"
-        elif w >= 80:
-            hints = "^D type · ^K palette · ^T theme · ^Q quit"
+        mode = self._layout_mode
+        if mode is _LayoutMode.WIDE:
+            hints = "/ cmd · @ file · ^D type · ^K palette · ^P help · ^T theme · ^Q quit"
+        elif mode is _LayoutMode.MEDIUM:
+            hints = "^D type · ^K palette · ^P help · ^T theme · ^Q quit"
+        elif mode is _LayoutMode.NARROW:
+            hints = "^D type · ^K palette · ^P help · ^Q quit"
         else:
-            hints = "^K · ^D · ^Q"
+            hints = "^P help · ^K · ^D · ^Q"
         try:
             self.query_one("#key-hints", Static).update(hints)
         except Exception:
@@ -800,7 +935,7 @@ class ASCIITuiApp(App):
             except Exception as exc:
                 # A single bad frame must not kill the GIF timer for good.
                 self._stop_gif_timer()
-                self._log().write(f"[yellow][GIF] playback stopped: {exc}[/yellow]")
+                self._log().write(f"[yellow][GIF] playback stopped: {escape(str(exc))}[/yellow]")
 
         render_step()
         avg_dur = max(0.05, min(0.25, self._canvas_frames[0][1]))
@@ -927,11 +1062,15 @@ class ASCIITuiApp(App):
             self._set_status("Inline video paused (Space to resume)")
             return
         if not _CV2_OK:
-            self._set_status("OpenCV required for inline video playback")
+            self._report_error(
+                "OpenCV required for inline video playback", tag="WARN", notify=False
+            )
             return
         cap = cv2.VideoCapture(self.selected_file)
         if not cap.isOpened():
-            self._set_status("Could not open video for inline playback")
+            self._report_error(
+                "Could not open video for inline playback", tag="VIDEO", notify=False
+            )
             return
         self._stop_all_animations()
         self._show_canvas_stage()
@@ -964,7 +1103,7 @@ class ASCIITuiApp(App):
                 # A decode hiccup or an unmounted widget must not kill the
                 # playback interval for the rest of the session.
                 self._stop_video_preview()
-                self._set_status(f"[ERROR] Video preview stopped: {exc}")
+                self._report_error(f"Video preview stopped: {exc}", tag="VIDEO")
 
         self._video_timer = self.set_interval(interval, tick_video)
 
@@ -1096,9 +1235,9 @@ class ASCIITuiApp(App):
             self._cam_failures += 1
             if self._cam_failures >= 15:
                 self._stop_webcam_preview()
-                self._set_status("[WARN] Webcam lost -- stopped preview")
-                self._set_activity("[WARN] webcam signal lost")
-                self._log().write("[yellow][CAM] Webcam signal lost -- preview stopped[/yellow]")
+                self._report_error(
+                    "Webcam signal lost -- preview stopped", tag="WARN", notify=False
+                )
                 try:
                     self.query_one("#cam-stats", Static).update("[ERROR] Camera signal lost")
                 except Exception:
@@ -1128,10 +1267,10 @@ class ASCIITuiApp(App):
             # One malformed frame must not kill the interval callback.
             self._cam_failures += 1
             if self._cam_failures == 1:
-                self._log().write(f"[yellow][CAM] frame skipped: {exc}[/yellow]")
+                self._log().write(f"[yellow][CAM] frame skipped: {escape(str(exc))}[/yellow]")
             if self._cam_failures >= 15:
                 self._stop_webcam_preview()
-                self._set_status(f"[ERROR] Webcam failed: {exc}")
+                self._report_error(f"Webcam failed: {exc}", tag="CAM")
             return
         try:
             self.query_one("#cam-stats", Static).update(
@@ -1177,8 +1316,9 @@ class ASCIITuiApp(App):
         snap = self._last_cam_image
         self._stop_webcam_preview()
         if snap is None:
-            self._set_status("[WARN] No webcam frame to freeze")
-            self._set_activity("[WARN] no webcam frame to freeze")
+            self._report_error(
+                "No webcam frame to freeze", tag="WARN", notify=False
+            )
             return
         from ..images import save_clipboard_image
 
@@ -1212,7 +1352,7 @@ class ASCIITuiApp(App):
         self._set_status("[OK] Webcam snapshot frozen -- style or export (/export)")
         self._set_activity("[SNAP] frozen onto canvas")
         if saved_path:
-            self._log().write(f"[yellow][CAM] Snapshot frozen: {saved_path}[/yellow]")
+            self._log_line("yellow", f"[CAM] Snapshot frozen: {saved_path}")
 
     # ---- selections ----
 
@@ -1220,7 +1360,7 @@ class ASCIITuiApp(App):
         self._stop_webcam_preview()
         if kind == "lyrics":
             self._lyrics_auto = path
-            self._log().write(f"[cyan]Lyrics: {os.path.basename(path)}[/cyan]")
+            self._log_line("cyan", f"Lyrics: {os.path.basename(path)}")
             self._update_preview()
             return
         if kind == "image":
@@ -1229,7 +1369,7 @@ class ASCIITuiApp(App):
             self._lyrics_auto = None
             name = self._selected_name()
             self.query_one("#selected-file", Static).update(f"> {name}")
-            self._log().write(f"[magenta][FILE] Image loaded: {name}[/magenta]")
+            self._log_line("magenta", f"[FILE] Image loaded: {name}")
             self._set_status(f"Image loaded: {name}")
             self._set_activity(f"[FILE] {name}")
             self._update_preview()
@@ -1242,8 +1382,8 @@ class ASCIITuiApp(App):
         self.query_one("#selected-file", Static).update(f"> {name}")
         note = ""
         if self._lyrics_auto:
-            note = f"  [dim](lyrics: {os.path.basename(self._lyrics_auto)})[/dim]"
-        self._log().write(f"[green][VIDEO] Ready: {name}[/green]{note}")
+            note = f"  [dim](lyrics: {escape(os.path.basename(self._lyrics_auto))})[/dim]"
+        self._log().write(f"[green][VIDEO] Ready: {escape(name)}[/green]{note}")
         self._set_status(f"Video ready: {name} (/popout or P for audio)")
         self._set_activity(f"[VIDEO] {name}")
         self._update_preview()
@@ -1256,8 +1396,7 @@ class ASCIITuiApp(App):
         prompt_inp = self.query_one("#prompt-input", Input)
         text = (prompt if prompt is not None else prompt_inp.value).strip()
         if not text:
-            self._set_status("[WARN] Enter a prompt first")
-            self._set_activity("[WARN] enter a prompt")
+            self._report_error("Enter a prompt first", tag="WARN", notify=False)
             return
 
         if prompt is not None:
@@ -1340,7 +1479,7 @@ class ASCIITuiApp(App):
         except Exception:
             pass
         self._set_status(f"[OK] Prompt rendered via {result.engine}")
-        self._log().write(f"[magenta][PROMPT] '{result.prompt}' -> {note}[/magenta]")
+        self._log_line("magenta", f"[PROMPT] '{result.prompt}' -> {note}")
 
     # ---- universal URL loader ----
 
@@ -1349,7 +1488,9 @@ class ASCIITuiApp(App):
         url_inp = self.query_one("#url-input", Input)
         url = (raw_url if raw_url is not None else url_inp.value).strip()
         if not url:
-            self._set_status("[WARN] Paste a URL or file path first")
+            self._report_error(
+                "Paste a URL or file path first", tag="WARN", notify=False
+            )
             return
         if raw_url is not None:
             url_inp.value = url
@@ -1361,8 +1502,7 @@ class ASCIITuiApp(App):
             return
 
         if not is_url(url):
-            self._set_status(f"[ERROR] Invalid URL: {url}")
-            self._set_activity(f"[ERROR] invalid URL: {url}")
+            self._report_error(f"Invalid URL: {url}", tag="URL", notify=False)
             try:
                 self.query_one("#url-info", Static).update(
                     f"[ERROR] Not a valid URL or path: {url}"
@@ -1444,7 +1584,7 @@ class ASCIITuiApp(App):
             except Exception:
                 pass
             self._set_status(f"[OK] Loaded URL: {resolved.title}")
-            self._log().write(f"[cyan][URL] Loaded ({resolved.kind}): {resolved.title}[/cyan]")
+            self._log_line("cyan", f"[URL] Loaded ({resolved.kind}): {resolved.title}")
         else:
             self._show_canvas_stage()
             self._stop_spinner(f"[OK] video stream ready: {resolved.title}")
@@ -1978,28 +2118,46 @@ class ASCIITuiApp(App):
         save_config(cfg)
 
     def toggle_playlist_item(self, path, kind):
-        """Add or remove a file from the playlist."""
+        """Add or remove a file from the playlist, with visible confirmation."""
+        name = os.path.basename(path)
         entry = {"path": path, "kind": kind}
+        adding = True
         for i, e in enumerate(self._playlist):
             if e["path"] == path:
                 self._playlist.pop(i)
-                self._log().write(f"[dim]Removed from playlist: {os.path.basename(path)}[/dim]")
-                self.query_one(PlaylistPanel).refresh_playlist(
-                    self._playlist, self._playlist_index
-                )
-                return
-        self._playlist.append(entry)
-        self._log().write(
-            f"[green]Added to playlist:[/green] {os.path.basename(path)} "
-            f"({len(self._playlist)} items)"
+                adding = False
+                break
+        if adding:
+            self._playlist.append(entry)
+        message = (
+            f"Queued: {name} ({len(self._playlist)} in queue)"
+            if adding
+            else f"Unqueued: {name}"
         )
+        self._log_line("green" if adding else "dim", f"[QUEUE] {message}")
+        self._set_status(f"✓ {message}")
+        self._set_activity(f"[QUEUE] {message}")
+        try:
+            self.notify(message, title="Playlist", timeout=3)
+        except Exception:
+            pass
         self.query_one(PlaylistPanel).refresh_playlist(self._playlist, self._playlist_index)
+        try:
+            self.query_one(FileBrowser).refresh_files()
+        except Exception:
+            pass
+        self._update_library_header()
 
     def clear_playlist(self):
         self._playlist.clear()
         self._playlist_index = 0
         self._log().write("[dim]Playlist cleared[/dim]")
         self.query_one(PlaylistPanel).refresh_playlist(self._playlist, self._playlist_index)
+        try:
+            self.query_one(FileBrowser).refresh_files()
+        except Exception:
+            pass
+        self._update_library_header()
 
     def play_next(self):
         if not self._playlist:
@@ -2025,13 +2183,17 @@ class ASCIITuiApp(App):
             self._record_recent(on_recent)
         self._persist_settings()
         if launch_new_terminal(args):
-            self._log().write(message_ok)
+            # Stay visible until the next action changes the status line.
+            self._set_status(message_ok)
+            self._set_activity(f"[PLAY] {message_ok}")
+            self._log_line("green", message_ok)
         else:
-            self._log().write(message_err)
-            self._set_status("Failed")
+            self._report_error(
+                f"Launch failed: {message_err}", tag="LAUNCH", prefix=False
+            )
             return
-        self._set_status("Ready")
         self.query_one(RecentList).refresh_recent()
+        self._update_library_header()
 
     # ---- copy & export ----
 
@@ -2060,24 +2222,27 @@ class ASCIITuiApp(App):
                     crop=bool(s.get("crop", False)),
                     aspect=self._parse_float(s.get("aspect", 0.55), 0.55),
                     export_format="gif",
+                    color=color,
                 )
                 self._set_status(f"[OK] Exported GIF: {out}")
                 self._set_activity(f"[EXPORT] saved {out}")
-                self._log().write(f"[green][EXPORT] Saved {out}[/green]")
+                self._log_line("green", f"[EXPORT] Saved {out}")
                 return
             except Exception as exc:
                 self._report_error(f"Export failed: {exc}", tag="EXPORT")
                 return
 
         if grid is None:
-            self._set_status("[WARN] Nothing on canvas to export")
+            self._report_error(
+                "Nothing on canvas to export", tag="WARN", notify=False
+            )
             return
         try:
             target = path if path.lower().endswith(f".{fmt}") else f"{path}.{fmt}"
             saved = save_grid(grid, target, color=color)
             self._set_status(f"[OK] Saved {saved}")
             self._set_activity(f"[EXPORT] saved {saved}")
-            self._log().write(f"[green][EXPORT] Saved {saved}[/green]")
+            self._log_line("green", f"[EXPORT] Saved {saved}")
         except Exception as exc:
             self._report_error(f"Export failed: {exc}", tag="EXPORT")
 
@@ -2093,12 +2258,12 @@ class ASCIITuiApp(App):
         try:
             st_btn = self.query_one("#btn-mode-studio", Button)
             dr_btn = self.query_one("#btn-mode-draw", Button)
-            if self._active_mode == "draw":
-                st_btn.remove_class("active")
-                dr_btn.add_class("active")
-            else:
-                dr_btn.remove_class("active")
-                st_btn.add_class("active")
+            in_draw = self._active_mode == "draw"
+            # Text marker, so the active tab is not color/bold alone.
+            st_btn.label = "Studio" if in_draw else "● Studio"
+            dr_btn.label = "● Type" if in_draw else "Type"
+            st_btn.set_class(not in_draw, "active")
+            dr_btn.set_class(in_draw, "active")
         except Exception:
             pass
 
@@ -2155,7 +2320,9 @@ class ASCIITuiApp(App):
         if grid is None and self._canvas_image is not None:
             grid = self._grid_from_image(self._canvas_image, self._settings())
         if grid is None:
-            self._set_status("[WARN] Nothing in Studio to import")
+            self._report_error(
+                "Nothing in Studio to import", tag="WARN", notify=False
+            )
             return
         self.action_switch_draw(import_current=True)
         self._set_status("[OK] Imported Studio artwork into Type canvas")
@@ -2166,7 +2333,9 @@ class ASCIITuiApp(App):
         if grid is None and self._canvas_image is not None:
             grid = self._grid_from_image(self._canvas_image, self._settings())
         if grid is None:
-            self._set_status("[WARN] Nothing in Studio to trace")
+            self._report_error(
+                "Nothing in Studio to trace", tag="WARN", notify=False
+            )
             return
         dw = self.query_one("#draw-workspace", DrawWorkspace)
         dw.trace_grid(grid)
@@ -2208,7 +2377,7 @@ class ASCIITuiApp(App):
     def _open_sidebar_exclusive(self):
         sidebar = self.query_one("#sidebar", Container)
         sidebar.add_class("open")
-        if int(self.size.width or 120) < 115:
+        if self._layout_mode.exclusive_drawers:
             self.query_one("#inspector", VerticalScroll).remove_class("open")
         self._schedule_canvas_refit()
 
@@ -2232,7 +2401,7 @@ class ASCIITuiApp(App):
             if self._active_mode == "studio":
                 self.query_one("#omnibox", Input).focus()
         else:
-            if int(self.size.width or 120) < 115:
+            if self._layout_mode.exclusive_drawers:
                 self.query_one("#sidebar", Container).remove_class("open")
             inspector.add_class("open")
             try:
@@ -2361,15 +2530,22 @@ class ASCIITuiApp(App):
             if grid is None and self._canvas_image is not None:
                 grid = self._grid_from_image(self._canvas_image, self._settings())
         if grid is None:
-            self._set_status("[WARN] Nothing on canvas to copy")
+            self._report_error(
+                "Nothing on canvas to copy", tag="WARN", notify=False
+            )
             return
-        text = "\n".join(grid_lines(grid, color=False))
+        color = self._active_mode == "draw" or bool(self._settings().get("color", False))
+        text = "\n".join(grid_lines(grid, color=color))
+        form = "colored ANSI" if color else "monochrome"
         if copy_text_to_clipboard(text):
-            self._set_status(f"[OK] Copied {grid.width}x{grid.height} ASCII to clipboard")
-            self._set_activity(f"[COPY] {grid.width}x{grid.height} copied to clipboard")
-            self._log().write(f"[cyan][COPY] Copied {grid.width}x{grid.height} ASCII[/cyan]")
+            message = f"Copied {grid.width}x{grid.height} {form} ASCII to clipboard"
+            self._set_status(f"[OK] {message}")
+            self._set_activity(f"[COPY] {message}")
+            self._log_line("cyan", f"[COPY] {message}")
         else:
-            self._set_status("[WARN] Clipboard unavailable on this system")
+            self._report_error(
+                "Clipboard unavailable on this system", tag="WARN", notify=False
+            )
 
     def action_save_ascii(self):
         stem = os.path.splitext(os.path.basename(self._canvas_label or "ascii_art"))[0]
@@ -2425,7 +2601,7 @@ class ASCIITuiApp(App):
             inspector.remove_class("open")
         else:
             sidebar.add_class("open")
-            if int(self.size.width or 120) >= 115:
+            if not self._layout_mode.exclusive_drawers:
                 inspector.add_class("open")
         self._schedule_canvas_refit()
 
@@ -2445,7 +2621,7 @@ class ASCIITuiApp(App):
             )
         except Exception:
             pass
-        self._log().write(f"[cyan]Theme: {self._current_theme}[/cyan]")
+        self._log_line("cyan", f"Theme: {self._current_theme}")
         self._set_status(f"Theme: {self._current_theme}")
         self._set_activity(f"[THEME] {self._current_theme}")
 
@@ -2467,8 +2643,9 @@ class ASCIITuiApp(App):
         """
         self._stop_visualizer()
         if not self.selected_file or not os.path.isfile(self.selected_file):
-            self._set_status("[WARN] Select a video before starting the visualizer")
-            self._set_activity("[WARN] select a video first")
+            self._report_error(
+                "Select a video before starting the visualizer", tag="WARN", notify=False
+            )
             return
         self._show_canvas_stage()
         self._visualizer_wanted = True
@@ -2494,17 +2671,20 @@ class ASCIITuiApp(App):
             self._stop_spinner()
             return
         if error or not audio_path:
-            self._stop_spinner("[WARN] visualizer unavailable (no audio/ffmpeg)")
-            self._set_status("[WARN] Visualizer unavailable: no audio track or ffmpeg")
-            self._log().write("[yellow][VIZ] No audio track or ffmpeg missing[/yellow]")
+            self._report_error(
+                "Visualizer unavailable: no audio track or ffmpeg",
+                tag="WARN",
+                notify=False,
+            )
             return
         self._visualizer_audio_path = audio_path
         viz = AudioVisualizer(audio_path, fps=30.0, mode="bars")
         if viz._data is None:
             cleanup_audio(audio_path)
             self._visualizer_audio_path = None
-            self._stop_spinner("[WARN] visualizer unavailable (unreadable audio)")
-            self._set_status("[WARN] Visualizer unavailable: could not read audio")
+            self._report_error(
+                "Visualizer unavailable: could not read audio", tag="WARN", notify=False
+            )
             return
         self._visualizer = viz
         self._visualizer_start = time.monotonic()
@@ -2678,6 +2858,14 @@ class ASCIITuiApp(App):
     def on_open_palette_pressed(self, event):
         self.action_open_palette()
 
+    @on(Button.Pressed, "#btn-help")
+    def on_help_pressed(self, event):
+        self.action_command_palette()
+
+    @on(Button.Pressed, "#btn-log-top")
+    def on_log_top_pressed(self, event):
+        self.action_focus_log()
+
     @on(Input.Submitted, "#url-input")
     def on_url_submitted(self, event):
         self.load_url_source()
@@ -2758,6 +2946,10 @@ class ASCIITuiApp(App):
     def on_toggle_log_pressed(self, event):
         self.action_focus_log()
 
+    @on(Button.Pressed, "#btn-theme-pill")
+    def on_theme_pill_pressed(self, event):
+        self.action_toggle_theme()
+
     @on(Checkbox.Changed)
     def on_checkbox_changed(self, event):
         if self._loading_settings:
@@ -2826,7 +3018,11 @@ class ASCIITuiApp(App):
     def play_url(self):
         url = self.query_one("#url-input", Input).value.strip()
         if not url:
-            self._log().write("[yellow]Paste a URL or file path first, then press Enter[/yellow]")
+            self._report_error(
+                "Paste a URL or file path first, then press Enter",
+                tag="WARN",
+                notify=False,
+            )
             return
 
         if os.path.isfile(url):
@@ -2841,14 +3037,16 @@ class ASCIITuiApp(App):
             args = self._build_player_args(url)
             self._launch(
                 args,
-                f"[green]Playing:[/green] {url}",
-                "[red]Failed to open terminal window[/red]",
+                f"Playing: {url}",
+                "Failed to open terminal window",
                 on_recent=url if (ext in VIDEO_EXT or ext in IMAGE_EXT) else None,
             )
             return
 
         if not is_url(url):
-            self._log().write(f"[red]Not a valid URL or path: {url}[/red]")
+            self._report_error(
+                f"Not a valid URL or path: {url}", tag="URL", notify=False
+            )
             return
 
         if is_image_url(url):
@@ -2856,8 +3054,8 @@ class ASCIITuiApp(App):
             args = self._build_player_args(url)
             self._launch(
                 args,
-                f"[green]Playing:[/green] {url}",
-                "[red]Failed to open terminal window[/red]",
+                f"Playing: {url}",
+                "Failed to open terminal window",
                 on_recent=url,
             )
             return
@@ -2865,25 +3063,26 @@ class ASCIITuiApp(App):
         args = self._build_player_args(url)
         self._launch(
             args,
-            f"[green]Playing:[/green] {url}",
-            "[red]Failed to open terminal window[/red]",
+            f"Playing: {url}",
+            "Failed to open terminal window",
             on_recent=url,
         )
 
     def play_file(self):
         if not self.selected_file:
-            self._log().write(
-                "[yellow]No media selected -- select a file, prompt, or URL first[/yellow]"
+            self._report_error(
+                "Nothing selected to pop-out -- select a file, prompt, or URL first",
+                tag="WARN",
+                notify=False,
             )
-            self._set_status("Nothing selected to pop-out")
             return
 
         name = self._selected_name()
         args = self._build_player_args(self.selected_file)
         self._launch(
             args,
-            f"[green]Playing:[/green] {name}",
-            "[red]Failed to open terminal window[/red]",
+            f"Playing: {name}",
+            "Failed to open terminal window",
             on_recent=self.selected_file,
         )
 
@@ -2920,24 +3119,28 @@ class ASCIITuiApp(App):
             except Exception:
                 pass
             if not self._is_focusable(canvas):
-                self._set_status("Clipboard paste needs the Type canvas")
+                self._report_error(
+                    "Clipboard paste needs the Type canvas", tag="WARN", notify=False
+                )
                 return
 
         image = get_cb_image()
         if image is not None:
             if canvas is not None:
-                self._set_status("Type mode accepts text paste only")
+                self._report_error(
+                    "Type mode accepts text paste only", tag="WARN", notify=False
+                )
                 return
             try:
                 path = save_cb_image(image)
             except Exception:
-                self._log().write("[red]Could not save clipboard image[/red]")
+                self._report_error("Could not save clipboard image", tag="CLIP")
                 return
             self.query_one(FileBrowser).refresh_files()
             self.select_file(path, "image")
             self._canvas_source_tag = "CLIPBOARD"
             self._update_canvas_meta(self._canvas_last_grid)
-            self._log().write(f"[green]Pasted image:[/green] {os.path.basename(path)}")
+            self._log_line("green", f"Pasted image: {os.path.basename(path)}")
             self._set_status("Clipboard image ready")
             return
         text = get_cb_text()
@@ -2961,16 +3164,17 @@ class ASCIITuiApp(App):
             else:
                 self._set_status("Clipboard text pasted")
             return
-        self._log().write("[yellow]Clipboard is empty or unavailable[/yellow]")
-        self._set_status("Clipboard empty")
+        self._report_error(
+            "Clipboard is empty or unavailable", tag="WARN", notify=False
+        )
 
     def run_webcam(self):
         self._stop_webcam_preview()
         args = self._build_webcam_args()
         self._launch(
             args,
-            "[green]Webcam started in new window[/green]",
-            "[red]Failed to open webcam[/red]",
+            "Webcam started in new window",
+            "Failed to open webcam",
         )
 
 
